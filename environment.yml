@@ -1,0 +1,18 @@
+name: mhp
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pip=21.1.2=py38hecd8cb5_0
+  - setuptools=52.0.0=py38hecd8cb5_0
+  - numba=0.53.1=py38hb2f4e1b_0
+  - numpy=1.20.2=py38h4b4dc7a_0
+  - numpy-base=1.20.2=py38he0bd621_0
+  - scipy=1.6.2=py38hd5f7400_1
+  - matplotlib=3.3.4=py38hecd8cb5_0
+  - matplotlib-base=3.3.4=py38h8b3ea08_0
+  - seaborn=0.11.1=pyhd3eb1b0_0
+  - shapely=1.7.1=py38h9250791_0
+  - graph-tool=2.37=py38hb63bd01_1
+  - pip:
+    - gtsam==4.1.0
