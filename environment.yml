@@ -16,3 +16,4 @@ dependencies:
   - graph-tool=2.37=py38hb63bd01_1
   - pip:
     - gtsam==4.1.0
+    - cmasher==1.6.3
