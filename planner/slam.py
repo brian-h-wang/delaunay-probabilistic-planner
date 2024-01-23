@@ -127,7 +127,7 @@ class ObstacleSLAM(object):
         # Initialize iSAM
         parameters = gtsam.ISAM2Params()
         parameters.setRelinearizeThreshold(relinearize_threshold)
-        parameters.setRelinearizeSkip(relinearize_skip)
+        parameters.relinearizeSkip = relinearize_skip
         isam = gtsam.ISAM2(parameters)
 
         # Initialize the graph
