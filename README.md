@@ -10,11 +10,11 @@ Recommended: Use the included `environment.yml` file to set up a Conda environme
 conda env create -f environment.yml
 ```
 
-After setting up the environment, run the Python `setup.py` file.
+After setting up the environment, activate it and install the package.
 
 ```commandline
 conda activate mhp
-python setup.py install
+python -m pip install -e .
 ```
 
 # Usage
