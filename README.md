@@ -42,8 +42,7 @@ The `-o` flag can be used to specify an output directory for saving the results 
 In order to regenerate all results from the paper, run the following commands. **Note these will take a long time to run. These commands can be run in multiple terminals in order to generate the results more quickly.**
 
 ```commandline
-# Run commands from the experiments directory.
-# Make sure you've run setup.py!
+# Run commands from the experiments directory
 cd experiments
 
 # Experiments in forests with uniformly distributed obstacles:
