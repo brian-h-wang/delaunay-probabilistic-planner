@@ -1308,7 +1308,7 @@ class SimulationAnimator(object):
     def animate(self, i):
         print("[Frame %d]" % i, end='\r', flush=True)
         sim = self.plotter.sim
-        if sim.is_running():
+        if sim.is_running() and (self.max_time is None or sim.t < self.max_time):
             sim.update()
             self.plotter.update()
         else:
