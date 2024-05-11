@@ -15,7 +15,8 @@ from pathlib import Path
 import time
 import argparse
 from experiments.simulation_defaults import seed, get_default_params, get_default_sensors
-
+from enum import Enum
+from typing import List
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output_dir", "-o", required=False, help="Output directory path")
@@ -23,8 +24,10 @@ parser.add_argument("--low_density", "-ld", action="store_true")
 parser.add_argument("--high_density", "-hd", action="store_true")
 parser.add_argument("--high_safety", "-hs", action="store_true")
 parser.add_argument("--clusters", "-c", action="store_true")
+parser.add_argument("--baselines", "-b", action="store_true", help="Run baseline methods")
 parser.add_argument("--speed", "-s", type=float, default=None, help="Maximum robot speed, in m/s.")
 parser.add_argument("--n_hyp_list", "-hyp", nargs="+", help="List of number of hypotheses to test", required=False)
+parser.add_argument("--debug", "-d", action="store_true", help="Debug mode. Stops sims after 1 second sim time")
 args = parser.parse_args()
 
 if args.low_density and args.high_density:
@@ -145,29 +148,56 @@ print("")
 
 class PlannerSettings(object):
 
-    def __init__(self, n_hypotheses=1):
+    class Planner(Enum):
+        BASELINE_NO_UNCERTAINTY = 0
+        BASELINE_SAFETY_AWARE_ASTAR = 1
+        MULTIPLE_HYPOTHESIS = 2
+
+    def __init__(self, planner_type: Planner, n_hypotheses: int = 1):
+        self.planner_type = planner_type
         self.n_hypotheses = n_hypotheses
 
     def __str__(self):
-        if self.n_hypotheses == 1:
-            return "1Hyp"
-        elif self.n_hypotheses == 0:
-            return "baseline"
-        else:
-            return "%dHyp" % self.n_hypotheses
+        if self.planner_type == self.Planner.BASELINE_NO_UNCERTAINTY:
+            return "Baseline - No uncertainty"
+        elif self.planner_type == self.Planner.BASELINE_SAFETY_AWARE_ASTAR:
+            return "Baseline - Safety-aware A* search"
+        elif self.planner_type == self.Planner.MULTIPLE_HYPOTHESIS:
+            return f"Multiple hypothesis planner with n_hyp={self.n_hypotheses}"
+        return ""
+
+    def short_filename(self):
+        if self.planner_type == self.Planner.BASELINE_NO_UNCERTAINTY:
+            return "baselineNU"
+        elif self.planner_type == self.Planner.BASELINE_SAFETY_AWARE_ASTAR:
+            return "baselineSAA"
+        elif self.planner_type == self.Planner.MULTIPLE_HYPOTHESIS:
+            return f"{self.n_hypotheses}hyp"
+        return ""
 
 
 if args.n_hyp_list is not None:
     n_hyp_list = [int(x) for x in args.n_hyp_list]
+    print("[INFO] Running comparison with n_hypotheses = " + str(n_hyp_list))
 else:
-    n_hyp_list = [0, 2, 10, 20]
-print("[INFO] Running comparison with n_hypotheses = " + str(n_hyp_list))
+    n_hyp_list = []
+    print("[INFO] n_hyp list not provided. Skipping multiple hypothesis planner.")
 
-methods = []
+
+# Generate the list of planners to run based on the input args
+
+methods: List[PlannerSettings] = []
+
+if args.baselines:
+    methods.append(PlannerSettings(planner_type=PlannerSettings.Planner.BASELINE_NO_UNCERTAINTY))
+    # methods.append(PlannerSettings(planner_type=PlannerSettings.Planner.BASELINE_SAFETY_AWARE_ASTAR))   # Not implemented
+
 for n_hyp in n_hyp_list:
     weight_s = 0.5
     weight_d = 1.0 - weight_s
-    methods.append(PlannerSettings(n_hypotheses=n_hyp))
+    methods.append(PlannerSettings(planner_type=PlannerSettings.Planner.MULTIPLE_HYPOTHESIS, n_hypotheses=n_hyp))
+
+debug_mode = args.debug
 
 start_time = time.time()
 
@@ -176,7 +206,7 @@ for method in methods:
     experiment_dir = output_dir
     if not experiment_dir.exists():
         experiment_dir.mkdir(parents=True)
-    results_filename = experiment_dir / ("%s_%s.txt" % (experiment_name, str(method)))
+    results_filename = experiment_dir / ("%s_%s.txt" % (experiment_name, method.short_filename()))
     if Path(results_filename).is_file():
         print("File %s already exists, skipping" % str(results_filename))
         continue
@@ -184,13 +214,12 @@ for method in methods:
         for forest_idx, forest_world in enumerate(forests):
             # Set up the simulation with multi-hypothesis planner parameters
             params = copy.deepcopy(default_params)
-            # TODO remove n_shortest_paths input
             params.n_hypotheses = method.n_hypotheses
 
             rb_sensor, size_sensor = get_default_sensors()
 
             # Using multiple hypothesis planner
-            if method.n_hypotheses > 0:
+            if method.planner_type == PlannerSettings.Planner.MULTIPLE_HYPOTHESIS:
                 sim = MultipleHypothesisPlannerSimulation(
                     start_pose=start_pose,
                     goal_position=goal_position,
@@ -200,7 +229,7 @@ for method in methods:
                     size_sensor=size_sensor,
                 )
             # Using baseline
-            else:
+            elif method.planner_type == PlannerSettings.Planner.BASELINE_NO_UNCERTAINTY:
                 sim = NoUncertaintyBaselineSimulation(
                     start_pose=start_pose,
                     goal_position=goal_position,
@@ -209,19 +238,19 @@ for method in methods:
                     range_bearing_sensor=rb_sensor,
                     size_sensor=size_sensor,
                 )
+            elif method.planner_type == PlannerSettings.Planner.BASELINE_SAFETY_AWARE_ASTAR:
+                raise NotImplementedError("Baseline safety-aware A* not implemented")
             sim_start_time = time.time()
             while sim.is_running():
                 sim.update()
                 dist = np.linalg.norm(sim.robot_position - sim.goal_position)
-                if method.n_hypotheses == 0:
-                    method_str = "Baseline"
-                else:
-                    method_str = "%d hyp" % (params.n_hypotheses)
                 print(
-                    "%s | Simulation time: %.3f  |   Distance from goal: %.3f" % (method_str, sim.t, dist),
+                    "%s | Simulation time: %.3f  |   Distance from goal: %.3f" % (str(method), sim.t, dist),
                     end="\r",
                     flush=True,
                 )
+                if debug_mode and sim.t > 1.0:
+                    break
             time_traveled = sim.t
             results_lines.append("%d, %d, %s, %f\n" % (forest_idx, params.n_hypotheses, sim.status, time_traveled))
             runtime = time.time() - sim_start_time
