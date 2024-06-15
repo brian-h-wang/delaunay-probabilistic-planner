@@ -676,17 +676,89 @@ class NoUncertaintyBaselineSimulation(Simulation):
         return waypoints
 
 
-class SafetyAwareAstarBaselineSimulation(Simulation):
+class SafetyAwareAstarBaselineSimulation(NoUncertaintyBaselineSimulation):
     """
     Baseline that uses an A* global planner with a cost function that takes into account path distance and safety.
     This does not use multiple hypotheses.
     """
 
     def plan_path(self, start_pose, goal_position):
-        raise NotImplementedError()
+        p = self.params
+        robot_width_bloated = p.robot_width * p.planner_robot_bloat
+        if self.slam.n_landmarks >= 3 and self.params.n_hypotheses > 0:
+            # Get the current estimates of landmark positions and sizes
+
+            # Build a navigation graph based on current obstacles estimate
+            # Increase robot width to account for occ grid bloat
+            a_star_planner = SafetyAwareAStarPlanner(
+                slam=self.slam,
+                robot_width=robot_width_bloated,
+                boundary=self.boundary,
+            )
+
+            # Plan high-level path in the graph
+            a_star_result = a_star_planner.find_path()
+
+            self.cell_decomposition = a_star_result.cell_decomposition
+            self.a_star_result = a_star_result
+
+            # Use the high-level path to guide the local hybrid A* search
+            high_level_path = a_star_result.best_path
+
+            # No path found
+            if high_level_path is None:
+                return np.empty((0, 2))
+
+            # Compute local goal from the high-level path and give as input to the local planner
+            plan_ahead_distance = self.get_plan_ahead_distance()
+            local_goal, is_global_goal = mhp_result.get_local_goal(distance=plan_ahead_distance)
+
+            # If planning to an intermediate local goal, not the global goal,
+            # the close-enough threshold on hybrid A* is more generous
+            if is_global_goal:
+                close_enough = p.close_enough
+            else:
+                close_enough = p.local_goal_close_enough
+            obstacle_means = self.slam.get_landmarks_position_size_mean()
+            boundary_obstacles = self.boundary.get_obstacles_array()
+            all_obstacles = np.concatenate([obstacle_means, boundary_obstacles], axis=0)
+            edge_evaluator = NavigationGraphEdgeEvaluator(
+                path=high_level_path, obstacles=all_obstacles, robot_width=robot_width_bloated
+            )
+            # For baseline, set to half of the waypoint following "close enough to goal",
+            #   to ensure that hybrid A* takes the robot precisely to the goal position
+            # For local goal in MHP, set a more generous threshold
+            planner = HybridAStarPlanner(
+                edge_evaluator=edge_evaluator,
+                xy_resolution=p.local_astar_xy_resolution,
+                angle_resolution=p.local_astar_angle_resolution,
+                n_motion_primitives=p.local_astar_n_motion_primitives,
+                motion_primitive_dt=p.local_astar_motion_primitive_dt,
+                motion_primitive_velocity=p.motion_primitive_velocity,
+                max_angular_rate=p.local_astar_max_angular_rate,
+                far_enough=None,
+                n_attempts_reduced_resolution=p.local_astar_n_attempts_reduced_resolution,
+                max_n_vertices=p.local_astar_max_n_vertices,
+                timeout_n_vertices=p.local_astar_timeout_n_vertices,
+                close_enough=close_enough,
+            )
+            path = planner.find_path(start_pose, local_goal)
+            self.local_planner_result = path
+            if path is None:
+                # No Hybrid A* result found
+                return np.empty((0, 2))
+
+            # Get robot positions from hybrid A* result
+            waypoints = path.poses(points_per_motion_primitive=5)[:, 0:2]
+            return waypoints
+
+        else:
+            # Not enough obstacles detected to build a navigation graph;
+            #   just use the baseline hybrid A* planner
+            return super().plan_path(start_pose, self.goal_position)
 
 
-class MultipleHypothesisPlannerSimulation(Simulation):
+class MultipleHypothesisPlannerSimulation(NoUncertaintyBaselineSimulation):
     """Simulation with the multiple-hypothesis planner."""
 
     def plan_path(self, start_pose, goal_position):
