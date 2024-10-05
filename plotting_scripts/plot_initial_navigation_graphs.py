@@ -188,7 +188,7 @@ for ax in ax_list:
     xmin, xmax = (-1.47, 13.47)
     # ymin, ymax = (-2, 12)
     ymin, ymax = (0.25, 9.75)
-    ax.set_title("Navigation graph and path hypotheses", fontsize=fontsize)
+    ax.set_title("Navigation graph and planned path", fontsize=fontsize)
     ax.set_xlabel("x [m]")
     ax.set_ylabel("y [m]")
     ax.set_yticks(np.arange(floor(ymin), ceil(ymax) + 1, 1.0))
