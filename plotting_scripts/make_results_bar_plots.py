@@ -92,20 +92,20 @@ def make_success_rate_plot(
     title: str = "",
 ):
     # Populate the "method" field for all data inputs
-    baseline_data["method"] = "baseline"
-    planner_low_safety_data["method"] = "planner_low_safety"
-    planner_high_safety_data["method"] = "planner_high_safety"
+    baseline_data["method"] = "Baseline"
+    planner_low_safety_data["method"] = "Planner, $p_{target} = 0.95$"
+    planner_high_safety_data["method"] = "Planner, $p_{target} = 0.999$"
 
     # Combine data into one dataframe, to count the number of successes and stops in total
     data_combined = pd.concat([baseline_data, planner_low_safety_data, planner_high_safety_data])
     data_success = data_combined[data_combined["status"] == "success"]
     data_success_or_stop = data_combined[data_combined["status"] != "crashed"]
 
-    sns.countplot(x="density", data=data_success, hue="method", ax=ax, palette="Set2", zorder=4)
-    sns.countplot(x="density", data=data_success_or_stop, hue="method", ax=ax, palette="Set2", saturation=0.2, zorder=3)
+    sns.countplot(x="method", data=data_success, hue="density", ax=ax, palette="Set2", zorder=4)
+    sns.countplot(x="method", data=data_success_or_stop, hue="density", ax=ax, palette="Set2", saturation=0.2, zorder=3)
     # TODO hack to make legend work with successes/stops separate bars
-    # ax.legend([density_label(r) for r in [0.1, 0.2, 0.3]], ncol=3, loc="upper center")
-    ax.legend(["Baseline", "Planner, $p_{target} = 0.95$", "Planner, $p_{target} = 0.999$"], ncol=3, loc="upper center")
+    ax.legend([density_label(r) for r in [0.1, 0.2, 0.3]], ncol=3, loc="upper center")
+    # ax.legend(["Baseline", "Planner, $p_{target} = 0.95$", "Planner, $p_{target} = 0.999$"], ncol=3, loc="upper center")
     # ax_success.legend([density_label(r) for r in [0.2, 0.3]], ncol=3, loc="upper center")
     # ax_success.set_ylim(0, 116)
     y_min = 0
@@ -116,7 +116,7 @@ def make_success_rate_plot(
     if not title:
         title = "Navigation successes vs. forest density"
     ax.set_title(title)
-    ax.set_xlabel("Forest density")
+    ax.set_xlabel("Method")
     ax.set_ylabel("Number of successes")
 
     # Set the xticklabels to clearly indicate 0 hypotheses as the baseline
@@ -139,21 +139,34 @@ parser = argparse.ArgumentParser()
 # Get the baseline results from the low-safety directory
 # Both the low- and high-safety results will also contain baseline results, and they are the same in both places
 parser.add_argument(
-    "--input_dir_low_safety",
-    "-i1",
+    "--input_dir",
+    "-i",
     type=str,
-    help="Path to input directory for baseline results, and planner results with low safety threshold.",
+    help="Path to input directory for results.",
 )
-parser.add_argument(
-    "--input_dir_high_safety",
-    "-i2",
-    type=str,
-    help="Path to input directory for planner results with high safety threshold.",
-)
+# parser.add_argument(
+#     "--input_dir_low_safety",
+#     "-i1",
+#     type=str,
+#     help="Path to input directory for baseline results, and planner results with low safety threshold.",
+# )
+# parser.add_argument(
+#     "--input_dir_high_safety",
+#     "-i2",
+#     type=str,
+#     help="Path to input directory for planner results with high safety threshold.",
+# )
 args = parser.parse_args()
 
-input_dir_low_safety = Path(args.input_dir_low_safety)
-input_dir_high_safety = Path(args.input_dir_high_safety)
+# input_dir_low_safety = Path(args.input_dir_low_safety)
+# input_dir_high_safety = Path(args.input_dir_high_safety)
+
+input_path = Path(args.input_dir)
+
+results_path_baseline_and_low_safety_uniform = input_path / "uniform-lowsafety"
+results_path_high_safety_uniform = input_path / "uniform-highsafety"
+results_path_baseline_and_low_safety_clusters = input_path / "clusters-lowsafety"
+results_path_high_safety_clusters = input_path / "clusters-highsafety"
 
 # titles = ["Desired safety threshold $p_{target}$ = 0.95", "Desired safety threshold $p_{target}$ = 0.999"]
 
@@ -171,27 +184,41 @@ axes_list = []
 #     axes_list.append(ax_success)
 
 # Create dataframes for the baseline, low-safety planner, and high-safety planner results
-data_baseline = read_results_into_dataframe(results_path=input_dir_low_safety, n_hyp_list=[0])
-data_low_safety = read_results_into_dataframe(results_path=input_dir_low_safety, n_hyp_list=[1])
-data_high_safety = read_results_into_dataframe(results_path=input_dir_high_safety, n_hyp_list=[1])
+data_baseline_uniform = read_results_into_dataframe(
+    results_path=results_path_baseline_and_low_safety_uniform, n_hyp_list=[0]
+)
+data_low_safety_uniform = read_results_into_dataframe(
+    results_path=results_path_baseline_and_low_safety_uniform, n_hyp_list=[1]
+)
+data_high_safety_uniform = read_results_into_dataframe(results_path=results_path_high_safety_uniform, n_hyp_list=[1])
 
 # Combine the data into a plot
-ax = fig.add_subplot(1, 1, 1)
-make_success_rate_plot(ax, data_baseline, data_low_safety, data_high_safety)
+ax_uniform = fig.add_subplot(1, 2, 1)
+make_success_rate_plot(ax_uniform, data_baseline_uniform, data_low_safety_uniform, data_high_safety_uniform)
+ax_uniform.set_title("Forests with uniform obstacles")
+
+# Repeat for cluster forests
+data_baseline_clusters = read_results_into_dataframe(
+    results_path=results_path_baseline_and_low_safety_clusters, n_hyp_list=[0]
+)
+data_low_safety_clusters = read_results_into_dataframe(
+    results_path=results_path_baseline_and_low_safety_clusters, n_hyp_list=[1]
+)
+data_high_safety_clusters = read_results_into_dataframe(results_path=results_path_high_safety_clusters, n_hyp_list=[1])
+
+# Combine the data into a plot
+ax_clusters = fig.add_subplot(1, 2, 2)
+make_success_rate_plot(ax_clusters, data_baseline_clusters, data_low_safety_clusters, data_high_safety_clusters)
+ax_clusters.set_title("Forests with Gaussian obstacle clusters")
 
 # Set figure title and layout
 # subtitle = "navigation successes versus number of planner hypotheses, compared to baseline"
-subtitle = "navigation successes versus forest density"
-if "cluster" in str(input_dir_low_safety):
-    title = "Gaussian cluster forests: " + subtitle
-elif "uniform" in str(input_dir_low_safety):
-    title = "Uniformly distributed forests: " + subtitle
-else:
-    title = "DEFAULT TITLE"
-if title:
-    fig.suptitle(title, fontweight="bold", fontsize=13)
+title = "Navigation successes per method, for different forest layouts and obstacle density $\\rho$"
+fig.suptitle(title, fontweight="bold", fontsize=13)
 fig_height = 6
 fig_width = fig_height * 2.4
 fig.set_size_inches(fig_width, fig_height)
 fig.tight_layout()
-plt.show()
+
+fig.savefig("navigation_successes_per_method.png", dpi=400)
+# plt.show()
