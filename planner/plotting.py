@@ -1240,6 +1240,7 @@ class MultipleHypothesisSubplot(SubplotInterface):
         sim: Simulation,
         title=None,
         n_paths_to_plot: int = 3,
+        no_legend=False,
     ):
         if title is None:
             title = "Top %d path hypotheses" % n_paths_to_plot
@@ -1252,6 +1253,7 @@ class MultipleHypothesisSubplot(SubplotInterface):
         cmap = get_cmap(cmap_name)
         colors = [cmap.colors[i] for i in range(n_paths_to_plot)]
         self.path_colors = colors
+        self.no_legend = no_legend
 
     def update(self, sim: Simulation):
         if sim.mhp_result is not None:
@@ -1263,6 +1265,7 @@ class MultipleHypothesisSubplot(SubplotInterface):
                     n_paths=self.n_paths_to_plot,
                     colors=self.path_colors,
                     show_cell_decomposition=show_cd,
+                    no_legend=self.no_legend,
                 )
             else:
                 self.path_plotter.update(sim.mhp_result)
@@ -1337,7 +1340,7 @@ class SimulationPlotter(object):
             self.planner_subplots.append(subplot_cd)
 
             ax_paths = fig.add_subplot(subplot_rows, subplot_cols, 4, sharex=ax_gt)
-            subplot_paths = MultipleHypothesisSubplot(ax_paths, xlim=xlim, ylim=ylim, sim=sim)
+            subplot_paths = MultipleHypothesisSubplot(ax_paths, xlim=xlim, ylim=ylim, sim=sim, no_legend=True)
             self.planner_subplots.append(subplot_paths)
 
         fig.tight_layout()

@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 from typing import List
 
+CLUSTERS_ONLY = True
+
 
 def density_label(rho: float) -> str:
     return r"$\rho$ = %.1f trees/m$^2$" % rho
@@ -193,9 +195,10 @@ data_low_safety_uniform = read_results_into_dataframe(
 data_high_safety_uniform = read_results_into_dataframe(results_path=results_path_high_safety_uniform, n_hyp_list=[1])
 
 # Combine the data into a plot
-ax_uniform = fig.add_subplot(1, 2, 1)
-make_success_rate_plot(ax_uniform, data_baseline_uniform, data_low_safety_uniform, data_high_safety_uniform)
-ax_uniform.set_title("Forests with uniform obstacles")
+if not CLUSTERS_ONLY:
+    ax_uniform = fig.add_subplot(1, 2, 1)
+    make_success_rate_plot(ax_uniform, data_baseline_uniform, data_low_safety_uniform, data_high_safety_uniform)
+    ax_uniform.set_title("Forests with uniform obstacles")
 
 # Repeat for cluster forests
 data_baseline_clusters = read_results_into_dataframe(
@@ -207,18 +210,30 @@ data_low_safety_clusters = read_results_into_dataframe(
 data_high_safety_clusters = read_results_into_dataframe(results_path=results_path_high_safety_clusters, n_hyp_list=[1])
 
 # Combine the data into a plot
-ax_clusters = fig.add_subplot(1, 2, 2)
-make_success_rate_plot(ax_clusters, data_baseline_clusters, data_low_safety_clusters, data_high_safety_clusters)
-ax_clusters.set_title("Forests with Gaussian obstacle clusters")
+if not CLUSTERS_ONLY:
+    ax_clusters = fig.add_subplot(1, 2, 2)
+else:
+    ax_clusters = fig.add_subplot(1, 1, 1)
 
-# Set figure title and layout
-# subtitle = "navigation successes versus number of planner hypotheses, compared to baseline"
-title = "Navigation successes per method, for different forest layouts and obstacle density $\\rho$"
-fig.suptitle(title, fontweight="bold", fontsize=13)
-fig_height = 6
-fig_width = fig_height * 2.4
+make_success_rate_plot(ax_clusters, data_baseline_clusters, data_low_safety_clusters, data_high_safety_clusters)
+
+if not CLUSTERS_ONLY:
+    ax_clusters.set_title("Forests with Gaussian obstacle clusters")
+
+    # Set figure title and layout
+    # subtitle = "navigation successes versus number of planner hypotheses, compared to baseline"
+    title = "Navigation successes per method, for different forest layouts and obstacle density $\\rho$"
+    fig.suptitle(title, fontweight="bold", fontsize=13)
+    fig_height = 6
+    fig_width = fig_height * 2.4
+
+else:
+    ax_clusters.set_title("Navigation successes with varying obstacle density $\\rho$")
+    fig_height = 5
+    fig_width = 7
+
 fig.set_size_inches(fig_width, fig_height)
 fig.tight_layout()
 
-fig.savefig("navigation_successes_per_method.png", dpi=400)
+fig.savefig(Path("FiguresOutput") / "navigation_successes_per_method.png", dpi=400)
 # plt.show()
