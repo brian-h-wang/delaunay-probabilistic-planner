@@ -6,8 +6,7 @@ from typing import Optional, Tuple, Union
 from graph_tool import Graph, Vertex, VertexPropertyMap, Edge, EdgePropertyMap
 from graph_tool.search import astar_search, AStarVisitor, StopSearch
 
-from planner.hybrid_astar import ValidEdgeEvaluator
-from planner.navigation_utils import NavigationBoundary
+from planner.navigation_utils import NavigationBoundary, ValidEdgeEvaluator
 
 
 COST_OCCUPIED_TO_OCCUPIED = 1e9
@@ -57,14 +56,14 @@ class AStar2DResult(object):
         remaining_path_distance = distance
         vertex_positions = self.points
         n_vertices = self.points.shape[0]
-        for v_idx in range(n_vertices-1):
+        for v_idx in range(n_vertices - 1):
             # Get the length of the next line segment in the path
-            p1 = vertex_positions[v_idx,:]
-            p2 = vertex_positions[v_idx+1,:]
+            p1 = vertex_positions[v_idx, :]
+            p2 = vertex_positions[v_idx + 1, :]
             segment = p2 - p1
             segment_length = np.linalg.norm(segment)
             if segment_length > remaining_path_distance:
-                goal = p1 + (segment/segment_length) * remaining_path_distance
+                goal = p1 + (segment / segment_length) * remaining_path_distance
                 is_global_goal = False
                 goal_index = v_idx
                 break
@@ -72,16 +71,16 @@ class AStar2DResult(object):
                 remaining_path_distance -= segment_length
         else:
             # Reached end of path; goal is last vertex in the path (will be the global goal)
-            goal = vertex_positions[-1,:]
+            goal = vertex_positions[-1, :]
             is_global_goal = True
-            goal_index = n_vertices-1
+            goal_index = n_vertices - 1
         if not return_index:
             return goal, is_global_goal
         else:
             return goal, is_global_goal, goal_index
 
     def get_points_after_local_goal(self):
-        """ Returns the 2D points on the global goal, which come after the local goal. """
+        """Returns the 2D points on the global goal, which come after the local goal."""
         if self._local_goal_point_index is None:
             raise ValueError("Must be called after get local goal")
 
@@ -94,13 +93,23 @@ class AStar2DVisitor(AStarVisitor):
     https://graph-tool.skewed.de/static/doc/search_module.html#graph_tool.search.astar_search
     """
 
-    def __init__(self, graph: Graph, start_position: ArrayLike, goal_position: ArrayLike,
-                 x_disc: VertexPropertyMap, y_disc: VertexPropertyMap,
-                 xy_resolution: float, close_enough: float,
-                 weight: EdgePropertyMap, dist: VertexPropertyMap, cost: VertexPropertyMap,
-                 edge_evaluator: ValidEdgeEvaluator, boundary: NavigationBoundary,
-                 max_n_vertices: int = -1,
-                 timeout_n_vertices: int = -1):
+    def __init__(
+        self,
+        graph: Graph,
+        start_position: ArrayLike,
+        goal_position: ArrayLike,
+        x_disc: VertexPropertyMap,
+        y_disc: VertexPropertyMap,
+        xy_resolution: float,
+        close_enough: float,
+        weight: EdgePropertyMap,
+        dist: VertexPropertyMap,
+        cost: VertexPropertyMap,
+        edge_evaluator: ValidEdgeEvaluator,
+        boundary: NavigationBoundary,
+        max_n_vertices: int = -1,
+        timeout_n_vertices: int = -1,
+    ):
         # Take in goal cell as occ grid coordinates
         # Do all computations in occ grid cell coordinates -
         # makes it easy to compute distances between cells
@@ -137,12 +146,11 @@ class AStar2DVisitor(AStarVisitor):
 
         # search stops if this many vertices explored without getting any closer to the goal
         self.timeout_n_vertices = timeout_n_vertices  #
-        self._closest_distance_to_goal = float('inf')
+        self._closest_distance_to_goal = float("inf")
         self._n_vertices_since_closer_to_goal = 0
 
         self.success = False
         self.goal_vertex = None
-
 
     def examine_vertex(self, u):
         # Iterate over the grid cells that neighbor the currently visited cell,
@@ -177,7 +185,7 @@ class AStar2DVisitor(AStarVisitor):
                     self.visited[neighbor_cell] = v
                     self.x_disc[v] = neighbor_cell[0]
                     self.y_disc[v] = neighbor_cell[1]
-                    self.dist[v] = self.cost[v] = float('inf')
+                    self.dist[v] = self.cost[v] = float("inf")
                 # Check that the graph does not already contain an edge from u to v,
                 # if not, create the edge
                 for e in u.out_edges():
@@ -187,12 +195,11 @@ class AStar2DVisitor(AStarVisitor):
                 else:
                     e = self.graph.add_edge(u, v)
                     # Edge weight is Euclidean distance between grid cell centers
-                    self.weight[e] = math.sqrt((d_x*self.xy_resolution)**2 +
-                                               (d_y*self.xy_resolution)**2)
+                    self.weight[e] = math.sqrt((d_x * self.xy_resolution) ** 2 + (d_y * self.xy_resolution) ** 2)
         self.visited[current_cell] = u
 
     def discrete_to_continuous(self, xy_cell):
-        """ Convert discrete cell coordinates to continous x-y coordinates"""
+        """Convert discrete cell coordinates to continous x-y coordinates"""
         x_o = self.origin_position[0]
         y_o = self.origin_position[1]
 
@@ -206,7 +213,7 @@ class AStar2DVisitor(AStarVisitor):
     def edge_relaxed(self, e):
         xy_cell = (self.x_disc[e.target()], self.y_disc[e.target()])
         x, y = self.discrete_to_continuous(xy_cell)
-        distance_to_goal = math.sqrt((x - self.goal_position[0])**2 + (y - self.goal_position[1])**2)
+        distance_to_goal = math.sqrt((x - self.goal_position[0]) ** 2 + (y - self.goal_position[1]) ** 2)
         if distance_to_goal <= self.close_enough:
             self.success = True
             self.goal_vertex = e.target()
@@ -218,7 +225,7 @@ class AStar2DVisitor(AStarVisitor):
         # If the visitor has explored the maximum number of vertices, conclude the search
         xy_cell = (self.x_disc[u], self.y_disc[u])
         x, y = self.discrete_to_continuous(xy_cell)
-        distance_to_goal = math.sqrt((x - self.goal_position[0])**2 + (y - self.goal_position[1])**2)
+        distance_to_goal = math.sqrt((x - self.goal_position[0]) ** 2 + (y - self.goal_position[1]) ** 2)
         # Record if we are getting any closer to the goal
         # Search terminates if self.timeout_n_vertices is set, and we explore this many vertices
         #   without getting any closer to the goal
@@ -227,24 +234,29 @@ class AStar2DVisitor(AStarVisitor):
             self._n_vertices_since_closer_to_goal = 0
         else:
             self._n_vertices_since_closer_to_goal += 1
-        if self.max_n_vertices > 0: # max_n_vertices is set to -1 by default (disabled)
+        if self.max_n_vertices > 0:  # max_n_vertices is set to -1 by default (disabled)
             if self.n_vertices_finished >= self.max_n_vertices:
                 print("Terminating search: explored max of %d vertices" % self.max_n_vertices)
                 raise StopSearch()
         if self.timeout_n_vertices > 0:
             if self._n_vertices_since_closer_to_goal >= self.timeout_n_vertices:
-                print("Terminating search: explored %d vertices without getting closer to goal" %
-                      self.timeout_n_vertices)
+                print(
+                    "Terminating search: explored %d vertices without getting closer to goal" % self.timeout_n_vertices
+                )
                 raise StopSearch()
 
 
 class AStar2DPlanner(object):
 
-    def __init__(self, edge_evaluator: ValidEdgeEvaluator,
-                 xy_resolution: float,  close_enough: float,
-                 boundary: NavigationBoundary,
-                 max_n_vertices: int = -1,
-                 timeout_n_vertices: int = -1):
+    def __init__(
+        self,
+        edge_evaluator: ValidEdgeEvaluator,
+        xy_resolution: float,
+        close_enough: float,
+        boundary: NavigationBoundary,
+        max_n_vertices: int = -1,
+        timeout_n_vertices: int = -1,
+    ):
         self.edge_evaluator = edge_evaluator
         self.xy_resolution = xy_resolution
         self.close_enough = close_enough
@@ -281,7 +293,7 @@ class AStar2DPlanner(object):
             dx = abs(x_c - x_g)
             dy = abs(y_c - y_g)
 
-            h=  math.sqrt(dx**2 + dy**2)
+            h = math.sqrt(dx**2 + dy**2)
 
             # difference in terms of discrete cells
             dr = dy / self.xy_resolution
@@ -290,32 +302,45 @@ class AStar2DPlanner(object):
             D = self.xy_resolution  # cost of moving straight
             D2 = math.sqrt(2) * D  # cost of moving diagonally
 
-            h = D * (dr + dc) + (D2 - 2* D) * min(dr, dc)
+            h = D * (dr + dc) + (D2 - 2 * D) * min(dr, dc)
 
             dx1 = x_c - x_g
             dy1 = y_c - y_g
             dx2 = x_o - x_g
             dy2 = y_o - y_g
-            cross = abs(dx1*dy2 - dx2*dy1)
+            cross = abs(dx1 * dy2 - dx2 * dy1)
 
-            return h + cross*0.001
+            return h + cross * 0.001
             # return math.sqrt((x - x_g)**2 + (y - y_g)**2) * (1 + 1./self.max_n_vertices)
 
-    # Define heuristic function
-        visitor = AStar2DVisitor(graph=graph,
-                                 start_position=start_position, goal_position=goal_position,
-                                 x_disc=x_disc, y_disc=y_disc,
-                                 xy_resolution=self.xy_resolution,
-                                 close_enough=self.close_enough,
-                                 weight=weight, dist=dist, cost=cost,
-                                 edge_evaluator=self.edge_evaluator,
-                                 boundary=self.boundary,
-                                 max_n_vertices=self.max_n_vertices,
-                                 timeout_n_vertices=self.timeout_n_vertices)
+        # Define heuristic function
+        visitor = AStar2DVisitor(
+            graph=graph,
+            start_position=start_position,
+            goal_position=goal_position,
+            x_disc=x_disc,
+            y_disc=y_disc,
+            xy_resolution=self.xy_resolution,
+            close_enough=self.close_enough,
+            weight=weight,
+            dist=dist,
+            cost=cost,
+            edge_evaluator=self.edge_evaluator,
+            boundary=self.boundary,
+            max_n_vertices=self.max_n_vertices,
+            timeout_n_vertices=self.timeout_n_vertices,
+        )
 
-        dist, pred = astar_search(graph, visitor.start_vertex,
-                                  weight=weight, visitor=visitor, dist_map=dist, cost_map=cost,
-                                  heuristic=astar_2d_heuristic, implicit=True)
+        dist, pred = astar_search(
+            graph,
+            visitor.start_vertex,
+            weight=weight,
+            visitor=visitor,
+            dist_map=dist,
+            cost_map=cost,
+            heuristic=astar_2d_heuristic,
+            implicit=True,
+        )
 
         if visitor.success:
 
@@ -326,18 +351,14 @@ class AStar2DPlanner(object):
                 x_d = x_disc[current_v]
                 y_d = y_disc[current_v]
                 x, y = visitor.discrete_to_continuous((x_d, y_d))
-                path_xy.append([x,y])
+                path_xy.append([x, y])
 
                 if current_v == visitor.start_vertex:
                     break
                 current_v = pred[current_v]
             path_xy.reverse()
 
-
             result = AStar2DResult(points=np.array(path_xy))
         else:
             result = None
         return result
-
-
-
