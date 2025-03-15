@@ -57,6 +57,7 @@ LM_INIT_SIZE_VAR = 100.0
 # Landmarks which are not observed for this many timestamps become inactive
 TIME_FOR_INACTIVE_LANDMARK = 10
 
+
 class LandmarkSizeEstimator(object):
     MIN_SIZE = 0.001
 
@@ -68,8 +69,8 @@ class LandmarkSizeEstimator(object):
         measurement_noise_var = measurement_std**2
         kalman_gain = self.var / (self.var + measurement_noise_var)
         exp_measurement = self.mean
-        self.mean = self.mean + kalman_gain*(measurement - exp_measurement)
-        self.var = (1. - kalman_gain) * self.var
+        self.mean = self.mean + kalman_gain * (measurement - exp_measurement)
+        self.var = (1.0 - kalman_gain) * self.var
 
         if self.mean < self.MIN_SIZE:
             self.mean = self.MIN_SIZE
@@ -96,8 +97,7 @@ class UncertaintyLog(object):
         self.size_uncertainty_history_dict[landmark_number] = []
         self.range_history_dict[landmark_number] = []
 
-    def add_detection(self, landmark_number: int, position_cov: ArrayLike, size_var: float,
-                      range_to_landmark: float):
+    def add_detection(self, landmark_number: int, position_cov: ArrayLike, size_var: float, range_to_landmark: float):
         self.n_detections_dict[landmark_number] += 1
         self.pos_uncertainty_history_dict[landmark_number].append(np.trace(position_cov))
         self.size_uncertainty_history_dict[landmark_number].append(size_var)
@@ -115,12 +115,17 @@ class UncertaintyLog(object):
 
 class ObstacleSLAM(object):
 
-    def __init__(self, initial_pose, range_bearing_sensor=RangeBearingSensorModel,
-                 size_sensor=SizeSensorModel,
-                 relinearize_threshold=0.01, relinearize_skip=1,
-                 save_uncertainty_log=False,
-                 bounds=None,
-                 boundary_obstacle_diameter=0.25):
+    def __init__(
+        self,
+        initial_pose,
+        range_bearing_sensor=RangeBearingSensorModel,
+        size_sensor=SizeSensorModel,
+        relinearize_threshold=0.01,
+        relinearize_skip=1,
+        save_uncertainty_log=False,
+        bounds=None,
+        boundary_obstacle_diameter=0.25,
+    ):
         # self.position_sensor = position_sensor
         self.range_bearing_sensor = range_bearing_sensor
         self.size_sensor = size_sensor
@@ -193,10 +198,11 @@ class ObstacleSLAM(object):
             rng = np.random.default_rng(seed)
 
             x_min, x_max, y_min, y_max = bounds
-            assert (x_min < x_max) and (y_min < y_max), \
-                "'bounds' must be specified as [xmin xmax ymin ymax], with xmin<xmax and ymin<ymax"
+            assert (x_min < x_max) and (
+                y_min < y_max
+            ), "'bounds' must be specified as [xmin xmax ymin ymax], with xmin<xmax and ymin<ymax"
 
-            tree_radius = boundary_obstacle_diameter/2.
+            tree_radius = boundary_obstacle_diameter / 2.0
             tree_spacing = boundary_obstacle_diameter
 
             # Amount of random variation to apply in the x-direction (for the left and right walls)
@@ -206,16 +212,17 @@ class ObstacleSLAM(object):
             def make_obstacle(x, y):
                 pos_cov = np.eye(2) * 1e-8
                 size_var = 1e-8
-                return Obstacle2D(pos_mean=[x,y], pos_cov=pos_cov,
-                                  size_mean=boundary_obstacle_diameter, size_var=size_var)
+                return Obstacle2D(
+                    pos_mean=[x, y], pos_cov=pos_cov, size_mean=boundary_obstacle_diameter, size_var=size_var
+                )
 
             # obstacles = np.empty((0,3))
             # Generate the top and bottom barriers
-            for y_coord in [y_min-tree_radius, y_max+tree_radius]:
+            for y_coord in [y_min - tree_radius, y_max + tree_radius]:
                 # Calculate how many trees should be in this barrier
                 n_trees_in_barrier = 1 + math.ceil((x_max - x_min) / tree_spacing)
                 # Generate tree center positions along this line
-                tree_x = np.linspace(x_min-tree_radius, x_max+tree_radius, n_trees_in_barrier)
+                tree_x = np.linspace(x_min - tree_radius, x_max + tree_radius, n_trees_in_barrier)
                 tree_y = rng.uniform(-variation, variation, n_trees_in_barrier) + y_coord
 
                 barrier = np.empty((n_trees_in_barrier, 3))
@@ -225,20 +232,18 @@ class ObstacleSLAM(object):
                 # obstacles = np.concatenate([obstacles, barrier], axis=0)
                 # self.boundary_obstacles.append(make_obstacle(tree_x, tree_y))
             # Generate the left and right barriers
-            for x_coord in [x_min-tree_radius, x_max+tree_radius]:
-                n_trees_in_barrier = (1 + math.ceil((y_max - y_min) / tree_spacing))
+            for x_coord in [x_min - tree_radius, x_max + tree_radius]:
+                n_trees_in_barrier = 1 + math.ceil((y_max - y_min) / tree_spacing)
                 tree_x = rng.uniform(-variation, variation, n_trees_in_barrier) + x_coord
                 tree_y = np.linspace(y_min - tree_radius, y_max + tree_radius, n_trees_in_barrier)
                 # Subtract two because the first and last trees can be removed
                 #   (these will overlap with the top/bottom barriers)
-                barrier = np.empty((n_trees_in_barrier-2, 3))
+                barrier = np.empty((n_trees_in_barrier - 2, 3))
                 # barrier[:,0] = tree_x[1:-1]
                 # barrier[:,1] = tree_y[1:-1]
                 # barrier[:,2] = tree_radius*2
                 # self.boundary_obstacles.append(make_obstacle(tree_x, tree_y))
                 # obstacles = np.concatenate([obstacles, barrier], axis=0)
-
-
 
     def update_odometry(self, odometry):
         """
@@ -259,7 +264,7 @@ class ObstacleSLAM(object):
         k = self.time_step
 
         prev_estimate: gtsam.Values = self.current_estimate
-        prev_pose = prev_estimate.atPose2(X(k-1))
+        prev_pose = prev_estimate.atPose2(X(k - 1))
 
         ### ODOMETRY FACTOR
 
@@ -271,7 +276,7 @@ class ObstacleSLAM(object):
         d_pose = gtsam.Pose2(d_x, d_y, d_yaw)
 
         # Add pose factor for this odometry measurement
-        odom_factor = gtsam.BetweenFactorPose2(X(k-1), X(k), d_pose, ODOMETRY_NOISE)
+        odom_factor = gtsam.BetweenFactorPose2(X(k - 1), X(k), d_pose, ODOMETRY_NOISE)
         self.graph.add(odom_factor)
 
         # # Calculate an initial estimate for the updated pose,
@@ -290,7 +295,6 @@ class ObstacleSLAM(object):
         pose: gtsam.Pose2 = self.current_estimate.atPose2(X(k))
         mean = np.array([pose.x(), pose.y(), pose.theta()])
         self.current_pose = mean
-
 
     def update_pose(self, pose):
         """
@@ -311,7 +315,7 @@ class ObstacleSLAM(object):
         k = self.time_step
 
         prev_estimate: gtsam.Values = self.current_estimate
-        prev_pose = prev_estimate.atPose2(X(k-1))
+        prev_pose = prev_estimate.atPose2(X(k - 1))
 
         ### ODOMETRY FACTOR
 
@@ -377,8 +381,7 @@ class ObstacleSLAM(object):
 
         ### Associate new detections with estimated landmarks and initialize any new landmarks
         # Perform data association using range and bearing Mahalanobis distance
-        assignments, assignment_costs = self.data_association(landmark_measurements,
-                                                              robot_pose=robot_pose_np)
+        assignments, assignment_costs = self.data_association(landmark_measurements, robot_pose=robot_pose_np)
 
         ### Add landmark factors to the factor graph
         # For each detection:
@@ -398,7 +401,7 @@ class ObstacleSLAM(object):
             size_estimator = self.landmark_size_estimators[assigned_landmark]
 
             # Increment the detection counts for this landmark
-            self.landmark_detection_counts.setdefault(assigned_landmark, 0) # add new landmark to dict
+            self.landmark_detection_counts.setdefault(assigned_landmark, 0)  # add new landmark to dict
             self.landmark_detection_counts[assigned_landmark] += 1
 
             # Get range and bearing measurements
@@ -412,9 +415,9 @@ class ObstacleSLAM(object):
             # NOTE: gtsam BearingRange factor puts bearing first, so sigmas are bearing-first
             measurement_noise_model = gtsam.noiseModel.Diagonal.Sigmas(np.array([bearing_sigma, range_sigma]))
 
-            measurement_factor = gtsam.BearingRangeFactor2D(X(k), L(assigned_landmark),
-                                                            z_bearing, z_range,
-                                                            measurement_noise_model)
+            measurement_factor = gtsam.BearingRangeFactor2D(
+                X(k), L(assigned_landmark), z_bearing, z_range, measurement_noise_model
+            )
 
             # Initialize new landmark
             if not self.current_estimate.exists(L(assigned_landmark)):
@@ -461,18 +464,20 @@ class ObstacleSLAM(object):
 
         # Update record of landmark uncertainty vs. detection number/range
         if self.uncertainty_log is not None:
-            assert gt_distances_to_measured_landmarks is not None, \
-                "If logging uncertainty in simulation, must pass in ground truth landmark distances as argument to slam update."
+            assert (
+                gt_distances_to_measured_landmarks is not None
+            ), "If logging uncertainty in simulation, must pass in ground truth landmark distances as argument to slam update."
             n_measurements = landmark_measurements.shape[0]
             for meas_idx in range(n_measurements):
                 # Get the landmark this detection was assigned to
                 assigned_landmark = assignments[meas_idx]
                 size_estimator = self.landmark_size_estimators[assigned_landmark]
-                self.uncertainty_log.add_detection(assigned_landmark,
-                                                   position_cov=lm_position_covs[assigned_landmark, :, :],
-                                                   size_var=size_estimator.var/
-                                                                            size_estimator.mean**2,
-                                                   range_to_landmark=gt_distances_to_measured_landmarks[meas_idx])
+                self.uncertainty_log.add_detection(
+                    assigned_landmark,
+                    position_cov=lm_position_covs[assigned_landmark, :, :],
+                    size_var=size_estimator.var / size_estimator.mean**2,
+                    range_to_landmark=gt_distances_to_measured_landmarks[meas_idx],
+                )
 
     def data_association(self, landmark_measurements, robot_pose):
         """
@@ -508,9 +513,9 @@ class ObstacleSLAM(object):
         costs = np.zeros((n_measurements, self.n_landmarks))
         # for each tree detection
         lm_pos_means, lm_pos_covs = self.get_landmarks_position_estimate()
-        landmark_range_bearing_measurements = landmark_measurements[:,0:2]
+        landmark_range_bearing_measurements = landmark_measurements[:, 0:2]
         lm_size_means, lm_size_vars = self.get_landmarks_size_estimate()
-        landmark_size_measurements = landmark_measurements[:,2]
+        landmark_size_measurements = landmark_measurements[:, 2]
         expected_measurements = self.get_landmarks_expected_range_bearing(robot_pose=robot_pose)
         for det_idx in range(n_measurements):
             # Calculate the sensor noise covariance matrix of this measurement
@@ -520,10 +525,18 @@ class ObstacleSLAM(object):
             size_sigma = self.size_sensor.get_sigma(z_size)
             rb_measurement_cov = np.diag([range_sigma**2, bearing_sigma**2])
             # Use numba helper function to quickly fill in this row of the cost matrix
-            data_assocation_costs_helper(costs, det_idx, robot_pose,
-                                         landmark_measurements, expected_measurements,
-                                         lm_pos_means, lm_pos_covs, lm_size_means,
-                                         rb_measurement_cov, size_sigma)
+            data_assocation_costs_helper(
+                costs,
+                det_idx,
+                robot_pose,
+                landmark_measurements,
+                expected_measurements,
+                lm_pos_means,
+                lm_pos_covs,
+                lm_size_means,
+                rb_measurement_cov,
+                size_sigma,
+            )
             # for each existing landmark
             # for lm_idx in range(self.n_landmarks):
             #     ## Mahalanobis distance - range-bearing term
@@ -564,14 +577,13 @@ class ObstacleSLAM(object):
             #     costs[det_idx][lm_idx] = cost
 
         rows, cols = linear_sum_assignment(costs, maximize=False)
-        for r, c in zip(rows, cols): # for each detection
+        for r, c in zip(rows, cols):  # for each detection
             # Do not consider matchings over the maximum threshold
             if math.sqrt(costs[r, c]) < MAX_MAHALANOBIS_DISTANCE:
                 assignments[r] = c
                 assigned_costs[r] = costs[r, c]
 
         return assignments, assigned_costs
-
 
     # DEPRECATED old data association function for relative XY measurements
     def data_association_position(self, landmark_measurements, mahalanobis=True):
@@ -629,11 +641,12 @@ class ObstacleSLAM(object):
 
                 else:
                     # Euclidean distance, position only
-                    costs[det_idx][lm_idx] = np.linalg.norm(landmark_measurements[det_idx,0:2]
-                                                            - landmark_expected_position)
+                    costs[det_idx][lm_idx] = np.linalg.norm(
+                        landmark_measurements[det_idx, 0:2] - landmark_expected_position
+                    )
 
         rows, cols = linear_sum_assignment(costs, maximize=False)
-        for r, c in zip(rows, cols): # for each detection
+        for r, c in zip(rows, cols):  # for each detection
 
             # Do not consider matchings over the maximum threshold
             if math.sqrt(costs[r, c]) < MAX_MAHALANOBIS_DISTANCE:
@@ -641,7 +654,6 @@ class ObstacleSLAM(object):
                 assigned_costs[r] = costs[r, c]
 
         return assignments, assigned_costs
-
 
     def get_landmarks_expected_range_bearing(self, robot_pose):
         """
@@ -654,7 +666,7 @@ class ObstacleSLAM(object):
             to landmark i, given the current robot pose.
         """
         # Get mean position of each landmark
-        mean_positions = self.get_landmarks_position_size_mean()[:,0:2]
+        mean_positions = self.get_landmarks_position_size_mean()[:, 0:2]
 
         # Calculate displacement vector from robot position, to each landmark
         robot_position = robot_pose[0:2]
@@ -664,15 +676,15 @@ class ObstacleSLAM(object):
         ranges_to_landmarks = np.linalg.norm(mean_positions - robot_position, axis=1)
 
         # Calculate bearings to each landmark
-        global_frame_angles = np.arctan2(displacement_vectors[:,1], displacement_vectors[:,0])
+        global_frame_angles = np.arctan2(displacement_vectors[:, 1], displacement_vectors[:, 0])
         robot_orientation = robot_pose[2]
         # TODO check that subtracting robot orientation does not cause issues with angles needed to be % 2pi
         #      could fix by converting displacement vector to local frame coordinates /before/ taking arctan2
         bearing_angles = global_frame_angles - robot_orientation
 
-        measurements = np.empty((self.n_landmarks,2))
-        measurements[:,0] = ranges_to_landmarks
-        measurements[:,1] = bearing_angles
+        measurements = np.empty((self.n_landmarks, 2))
+        measurements[:, 0] = ranges_to_landmarks
+        measurements[:, 1] = bearing_angles
         return measurements
 
     def get_pose_estimate(self):
@@ -712,8 +724,8 @@ class ObstacleSLAM(object):
         means = np.empty((self.n_landmarks, 2))
         covs = np.empty((self.n_landmarks, 2, 2))
         for i in range(self.n_landmarks):
-            means[i,:] = estimate.atPoint2(L(i))
-            covs[i,:,:] = self.isam.marginalCovariance(L(i))
+            means[i, :] = estimate.atPoint2(L(i))
+            covs[i, :, :] = self.isam.marginalCovariance(L(i))
         return means, covs
 
     def get_landmarks_size_estimate(self):
@@ -738,9 +750,31 @@ class ObstacleSLAM(object):
         estimate: gtsam.Values = self.current_estimate
         means = np.empty((self.n_landmarks, 3))
         for i in range(self.n_landmarks):
-            means[i,0:2] = estimate.atPoint2(L(i))
+            means[i, 0:2] = estimate.atPoint2(L(i))
             means[i, 2] = self.landmark_size_estimators[i].mean
         return means
+
+    def get_landmarks_position_size_mean_and_variance(self):
+        """
+        Get the mean and variances of the landmark estimates.
+
+        Returns:
+        --------
+        means: ndarray
+            Size (N, 3) array where each row contains [x_mean, y_mean, diameter_mean].
+        variances: ndarray
+            Size (N, 3) array where each row contains [x_var, y_var, diameter_var].
+        """
+        pos_means, pos_covs = self.get_landmarks_position_estimate()
+        size_means, size_vars = self.get_landmarks_size_estimate()
+
+        # Extract variances from covariance matrices
+        pos_vars = np.array([np.diag(pos_covs[i, :, :]) for i in range(self.n_landmarks)])
+
+        means = np.hstack((pos_means, size_means[:, None]))
+        variances = np.hstack((pos_vars, size_vars[:, None]))
+
+        return means, variances
 
     def get_landmarks_estimate(self) -> List[Obstacle2D]:
         """
@@ -760,13 +794,17 @@ class ObstacleSLAM(object):
         landmark_size_means, landmark_size_vars = self.get_landmarks_size_estimate()
 
         for i in range(self.n_landmarks):
-            pos_mean = landmark_pos_means[i,:]
-            pos_cov = landmark_pos_covs[i,:,:]
+            pos_mean = landmark_pos_means[i, :]
+            pos_cov = landmark_pos_covs[i, :, :]
             size_mean = landmark_size_means[i]
             size_var = landmark_size_vars[i]
-            landmark = Obstacle2D(pos_mean=pos_mean, pos_cov=pos_cov,
-                                  size_mean=size_mean, size_var=size_var,
-                                  n_measurements=self.landmarks_n_measurements[i])
+            landmark = Obstacle2D(
+                pos_mean=pos_mean,
+                pos_cov=pos_cov,
+                size_mean=size_mean,
+                size_var=size_var,
+                n_measurements=self.landmarks_n_measurements[i],
+            )
             landmarks.append(landmark)
         return landmarks
 
@@ -780,11 +818,12 @@ class ObstacleSLAM(object):
         # Create a new landmark for SLAM.
         # Returns the integer index of the newly added landmark.
         idx = self.n_landmarks
-        self.landmark_size_estimators[idx] = LandmarkSizeEstimator(init_mean=LM_INIT_SIZE_MEAN,
-                                                                 init_var=LM_INIT_SIZE_VAR)
+        self.landmark_size_estimators[idx] = LandmarkSizeEstimator(
+            init_mean=LM_INIT_SIZE_MEAN, init_var=LM_INIT_SIZE_VAR
+        )
         self.landmarks_n_measurements[idx] = 0
         self._is_boundary[idx] = False
-        self.closest_robot_to_landmark_distance[idx] = float('inf')
+        self.closest_robot_to_landmark_distance[idx] = float("inf")
 
         if self.uncertainty_log is not None:
             self.uncertainty_log.add_landmark(idx)
@@ -793,9 +832,8 @@ class ObstacleSLAM(object):
         return idx
 
     def get_landmark_closest_distance(self, landmark_idx: int):
-        """ Given a landmark index, return the closest this landmark has ever been from the robot."""
+        """Given a landmark index, return the closest this landmark has ever been from the robot."""
         return self.closest_robot_to_landmark_distance[landmark_idx]
-
 
     def get_obstacles(self):
         """
@@ -811,10 +849,12 @@ class ObstacleSLAM(object):
         size_means, size_vars = self.get_landmarks_size_estimate()
 
         for i in range(pos_means.shape[0]):
-            obs = Obstacle2D(pos_mean=pos_means[i,:], pos_cov=pos_covs[i,:,:],
-                             size_mean=size_means[i], size_var=size_vars[i])
+            obs = Obstacle2D(
+                pos_mean=pos_means[i, :], pos_cov=pos_covs[i, :, :], size_mean=size_means[i], size_var=size_vars[i]
+            )
             obstacles.append(obs)
         return obstacles
+
 
 @numba.njit()
 def bearing_range_jacobian(robot_pose, landmark_position):
@@ -854,8 +894,8 @@ def bearing_range_jacobian(robot_pose, landmark_position):
     robot_to_lm_dist = np.linalg.norm(landmark_position - robot_pose[0:2])
 
     # Calculate partial derivatives of range measurement
-    dR_dx =  (x_lm - x_r) / robot_to_lm_dist
-    dR_dy =  (y_lm - y_r) / robot_to_lm_dist
+    dR_dx = (x_lm - x_r) / robot_to_lm_dist
+    dR_dy = (y_lm - y_r) / robot_to_lm_dist
 
     # Calculate partial derivatives of bearing measurement
     dB_dx = (y_r - y_lm) / robot_to_lm_dist**2
@@ -946,34 +986,39 @@ def data_association_helper(landmark_measurements, robot_pose
 
 """
 
+
 @numba.njit()
 # TODO this helper function reduces the runtime of data association by 30-50% with many landmarks.
 #      Could implement more of the data association function in numba to speed it up further.
-def data_assocation_costs_helper(costs, det_idx: int,
-                                 robot_pose,
-                                 landmark_measurements, expected_measurements,
-                                 lm_pos_means, lm_pos_covs,
-                                 lm_size_means,
-                                 rb_measurement_cov, size_sigma):
+def data_assocation_costs_helper(
+    costs,
+    det_idx: int,
+    robot_pose,
+    landmark_measurements,
+    expected_measurements,
+    lm_pos_means,
+    lm_pos_covs,
+    lm_size_means,
+    rb_measurement_cov,
+    size_sigma,
+):
     n_landmarks = costs.shape[1]
-    landmark_range_bearing_measurements = landmark_measurements[:,0:2]
-    landmark_size_measurements = landmark_measurements[:,2]
+    landmark_range_bearing_measurements = landmark_measurements[:, 0:2]
+    landmark_size_measurements = landmark_measurements[:, 2]
     for lm_idx in range(n_landmarks):
         ## Mahalanobis distance - range-bearing term
         # Calculate difference vector btwn expected and observed range-bearing measurements
-        d_measurement = (landmark_range_bearing_measurements[det_idx, :] -
-                         expected_measurements[lm_idx, :])
+        d_measurement = landmark_range_bearing_measurements[det_idx, :] - expected_measurements[lm_idx, :]
         # Ensure that bearing difference is in the range +-180 degrees
         # https://stackoverflow.com/questions/1878907/how-can-i-find-the-difference-between-two-angles
         d_measurement[1] = fix_angle(d_measurement[1])
         # Mod difference in radians by 2pi
 
         # Get covariance of the landmark's X-Y position estimate
-        xy_cov = lm_pos_covs [lm_idx, :, :]
+        xy_cov = lm_pos_covs[lm_idx, :, :]
 
         # Project the X-Y position covariance into covariance on the range and bearing
-        jacobian = bearing_range_jacobian(robot_pose=robot_pose,
-                                          landmark_position=lm_pos_means[lm_idx, :])
+        jacobian = bearing_range_jacobian(robot_pose=robot_pose, landmark_position=lm_pos_means[lm_idx, :])
         rb_cov = jacobian.dot(xy_cov).dot(jacobian.T)
 
         # Add the sensor noise
@@ -983,7 +1028,7 @@ def data_assocation_costs_helper(costs, det_idx: int,
         ## Mahalanobis distance - size term
         # Expected landmark size is the current size estimate mean
         d_size = landmark_size_measurements[det_idx] - lm_size_means[lm_idx]
-        mahal_dist_size = d_size * 1./(size_sigma**2) * d_size
+        mahal_dist_size = d_size * 1.0 / (size_sigma**2) * d_size
 
         # Calculate the Mahalanobis distance
         mahal_dist = math.sqrt(mahal_dist_rb + mahal_dist_size)

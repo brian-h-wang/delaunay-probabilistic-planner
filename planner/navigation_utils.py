@@ -415,8 +415,7 @@ class BloatedObstacleEdgeEvaluator(ValidEdgeEvaluator):
     def __init__(
         self,
         obstacle_means: ArrayLike,
-        position_variances: ArrayLike,
-        size_variances: ArrayLike,
+        obstacle_variances: ArrayLike,
         n_std_devs: int,
         robot_width: float = 0,
     ):
@@ -427,11 +426,9 @@ class BloatedObstacleEdgeEvaluator(ValidEdgeEvaluator):
         ----------
         obstacle_means : ArrayLike
             N by 3 array of obstacles, each row as [x, y, diameter].
-        position_variances : ArrayLike
-            N-element array containing position variances for each obstacle.
-            This should be the max of the x- and y- coordinate variance, for each obstacles.
-        size_variances : ArrayLike
-            N-element array containing the diameter variance for each obstacle.
+        obstacle_variances : ArrayLike
+            N-element array containing position and diameter variances for each obstacle,
+            each row as [position_variance_x, position_variance_y].
         n_std_devs: int
             Number of standard deviations by which each obstacle diameter should be bloated.
         robot_width : float, optional
@@ -439,15 +436,17 @@ class BloatedObstacleEdgeEvaluator(ValidEdgeEvaluator):
         """
         super().__init__()
         assert obstacle_means.shape[1] == 3, "Obstacles array must have each row as [x, y, diameter]"
-        assert position_variances.shape[0] == obstacle_means.shape[0], "position_variances must match obstacles"
-        assert size_variances.shape[0] == obstacle_means.shape[0], "size_variances must match obstacles"
-        assert position_variances.ndim == 1, "position_variances must be a 1D array"
-        assert size_variances.ndim == 1, "size_variances must be a 1D array"
+        assert (
+            obstacle_variances.shape[1] == 3
+        ), "obstacle_variances must have each row as [position_variance_x, position_variance_y, size_variance]"
+        assert obstacle_variances.shape[0] == obstacle_means.shape[0], "position_variances must match obstacles"
 
         # Calculate the bloated obstacle diameters
         # Radial displacement of the obstacle center from its mean due to position uncertainty
         # has std dev sqrt(x_var + y_var).
         # Add this to the size std dev, and multiply by desired number of standard deviations.
+        position_variances = obstacle_variances[:, 0:2]
+        size_variances = obstacle_variances[:, 2]
         bloated_diameters = obstacle_means[:, 2] + n_std_devs * (
             np.sqrt(position_variances[:, 0] + position_variances[:, 1]) + np.sqrt(size_variances)
         )
@@ -464,8 +463,8 @@ class BloatedObstacleEdgeEvaluator(ValidEdgeEvaluator):
         is_valid = not check_collision(
             robot_position=position,
             robot_width=self.robot_width,
-            obstacle_positions=self.obstacles[:, 0:2],
-            obstacle_diameters=self.obstacles[:, 2],
+            obstacle_positions=self.obstacle_means[:, 0:2],
+            obstacle_diameters=self.bloated_diameters,
         )
         return is_valid, 1.0
 
