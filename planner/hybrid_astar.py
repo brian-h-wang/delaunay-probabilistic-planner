@@ -21,7 +21,7 @@ from graph_tool import Graph, Vertex, Edge, VertexPropertyMap, EdgePropertyMap
 from graph_tool.search import AStarVisitor, astar_search, StopSearch
 from typing import List, Optional
 from numpy.typing import ArrayLike
-from navigation_utils import ValidEdgeEvaluator
+from planner.navigation_utils import ValidEdgeEvaluator
 
 
 class MotionPrimitives(object):
