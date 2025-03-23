@@ -629,9 +629,10 @@ class BaselineSimulation(Simulation):
         # Get mean obstacles and their position and size uncertainties
         obstacle_means, obstacle_variances = self.slam.get_landmarks_position_size_mean_and_variance()
 
-        # Set variances to zero for any obstacles beyond the medium-range zone
+        # Ignore any obstacles beyond the medium-range zone
         for obstacle_idx in range(obstacle_means.shape[0]):
             if np.linalg.norm(obstacle_means[obstacle_idx, 0:2] - self.robot_position) > p.range_medium:
+                obstacle_means[obstacle_idx, :] = 0.0
                 obstacle_variances[obstacle_idx, :] = 0.0
 
         # Get boundary obstacles, which have near-zero uncertainty

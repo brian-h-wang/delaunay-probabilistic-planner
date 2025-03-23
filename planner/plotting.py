@@ -1120,6 +1120,9 @@ class BaselinePlannerSubplot(SubplotInterface):
         # Update obstacles
         obstacles = sim.slam.get_landmarks_estimate()
         for obs_idx, obstacle in enumerate(obstacles):
+            # Baseline ignores obstacles past the medium range zone
+            if np.linalg.norm(obstacle.pos_mean - sim.robot_position) > sim.params.range_medium:
+                continue
             handle: Optional[ObstaclePlotter] = self.baseline_obstacles.setdefault(obs_idx, None)
             if handle is None:
                 self.baseline_obstacles[obs_idx] = BloatedObstacleEstimatePlotter(obstacle, n_std_devs=2, ax=self.ax)
