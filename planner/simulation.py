@@ -158,7 +158,7 @@ class SimulationParams(object):
         self.occlusions = True
 
         # How many standard deviations should the baseline bloat the obstacle diameters by?
-        self.baseline_n_std_devs_bloat = 0  # 0 means no bloat
+        self.baseline_n_std_devs_bloat = 2  # 0 means no bloat
 
 
 class Simulation(object):
@@ -628,6 +628,9 @@ class BaselineSimulation(Simulation):
 
         # Get mean obstacles and their position and size uncertainties
         obstacle_means, obstacle_variances = self.slam.get_landmarks_position_size_mean_and_variance()
+
+        # Set variances to zero for any obstacles beyond the medium-range zone
+        # TODO
 
         # Get boundary obstacles, which have near-zero uncertainty
         boundary_obstacles = self.boundary.get_obstacles_array()
