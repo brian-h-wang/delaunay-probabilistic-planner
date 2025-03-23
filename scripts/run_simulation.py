@@ -2,6 +2,8 @@
 Simulate and visualize the planner as a robot moves through a field of obstacles.
 """
 
+DEBUG = True
+
 import numpy as np
 import matplotlib.pyplot as plt
 from planner.simulation import MultipleHypothesisPlannerSimulation, BaselineSimulation
@@ -76,9 +78,13 @@ plt.ion()  # Required for matplotlib not to block execution
 if not save_video:
     print("Starting planner simulation...")
     plotter = SimulationPlotter(sim=sim, plot_bounds=bounds, interactive=True)
+    frame_count = 0
     while sim.is_running():
         sim.update()
         plotter.update()
+        frame_count += 1
+        if frame_count > 30 and DEBUG:
+            break
 else:
     plt.ion()  # Required for
     plotter = SimulationPlotter(sim=sim, plot_bounds=bounds, interactive=False)
