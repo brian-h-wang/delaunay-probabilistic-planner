@@ -353,16 +353,31 @@ class BloatedObstacleEstimatePlotter(ObstaclePlotter):
         ## Plot the bloated area
         #
         position_mean = obstacle.pos_mean
+
+        bloat_radius = self.calculate_bloat_radius(obstacle, n_std_devs)
+
+        self.n_std_devs = n_std_devs
+        self.circle_bloat = patches.Circle(
+            position_mean, radius=bloat_radius, color=self.dark_blue, zorder=4, alpha=0.5
+        )
+        ax.add_patch(self.circle_bloat)
+
+    def update(self, obstacle: Obstacle2D, color=None):
+        super().update(obstacle, color=color)
+        self.circle_bloat.set_center(obstacle.pos_mean)
+        self.circle_bloat.set_radius(self.calculate_bloat_radius(obstacle, self.n_std_devs))
+
+    @staticmethod
+    def calculate_bloat_radius(obstacle: Obstacle2D, n_std_devs: int) -> float:
         position_cov = obstacle.pos_cov
+
         radius_mean = obstacle.size_mean / 2.0  # diameter to radius
         radius_std = math.sqrt(obstacle.size_var) / 2.0
 
         # sqrt(x_std^2 + y_std^2) gives the diameter uncertainty, need to divide by 2
         position_std = math.sqrt(position_cov[0, 0] + position_cov[1, 1]) / 2.0
         bloat_radius = radius_mean + n_std_devs * (position_std + radius_std)
-
-        circle_mean = patches.Circle(position_mean, radius=bloat_radius, color=self.dark_blue, zorder=4, alpha=0.5)
-        ax.add_patch(circle_mean)
+        return bloat_radius
 
 
 class CellDecompositionPlotter(Plotter):
