@@ -1136,7 +1136,9 @@ class BaselinePlannerSubplot(SubplotInterface):
         obstacles = sim.slam.get_landmarks_estimate()
         for obs_idx, obstacle in enumerate(obstacles):
             # Baseline ignores obstacles past the medium range zone
-            if np.linalg.norm(obstacle.pos_mean - sim.robot_position) > sim.params.range_medium:
+            # Skip these obstacles so the plotting matches what the planner is doing
+            distance_to_obstacle = np.linalg.norm(obstacle.pos_mean.flatten() - sim.robot_position.flatten())
+            if distance_to_obstacle > sim.params.range_medium:
                 continue
             handle: Optional[ObstaclePlotter] = self.baseline_obstacles.setdefault(obs_idx, None)
             if handle is None:
