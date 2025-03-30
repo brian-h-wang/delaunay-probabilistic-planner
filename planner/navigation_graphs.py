@@ -2,7 +2,7 @@
 Module for constructing 2D navigation graphs, given a set of estimated obstacles.
 """
 
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from numpy.typing import ArrayLike
 import numpy as np
 import math
@@ -12,12 +12,20 @@ import matplotlib.pyplot as plt
 import heapq
 
 from planner.shortest_path import find_shortest_path
-from planner.cell_decomposition import SafetyCellDecomposition, RANGE_SHORT, RANGE_MEDIUM, RANGE_LONG, EXCLUDE_LONG_RANGE_VERTICES
+from planner.cell_decomposition import (
+    SafetyCellDecomposition,
+    RANGE_SHORT,
+    RANGE_MEDIUM,
+    RANGE_LONG,
+    EXCLUDE_LONG_RANGE_VERTICES,
+)
 from planner.navigation_utils import NavigationPath
+from planner.time_counter import TimeCounter, StubTimeCounter
 
 EDGE_VERTICES_NONE = (-1, -1)
 
 DISALLOW_DUPLICATE_PATHS = True
+
 
 class HypothesisQueue(ABC):
     """
@@ -35,7 +43,7 @@ class HypothesisQueue(ABC):
         vertex_excluded: VertexPropertyMap
             Map indicating which vertices should be excluded, over all hypotheses.
             If vertex_excluded[v] is True, then vertex v will be excluded in all hypotheses.
-            
+
         """
         self.graph = graph
         self.cell_faces_queue = []
@@ -78,8 +86,9 @@ class SimpleQueue(HypothesisQueue):
         for v in graph.vertices():
             v_cell_face = tuple(vertex_cell_decomp_edge[v].a)
             # TODO try a simple == between the tuples and see if it always works
-            if v_cell_face == least_safe_cell_face or (v_cell_face[0] == least_safe_cell_face[1]
-                                                       and v_cell_face[1] == least_safe_cell_face[0]):
+            if v_cell_face == least_safe_cell_face or (
+                v_cell_face[0] == least_safe_cell_face[1] and v_cell_face[1] == least_safe_cell_face[0]
+            ):
                 self.vertex_excluded[v] = True
         return self.vertex_excluded
 
@@ -98,6 +107,7 @@ class HypothesisTreeQueue(HypothesisQueue):
 
     The pop() method returns the current highest likelihood hypothesis in the queue.
     """
+
     def __init__(self, graph, vertex_excluded):
         super().__init__(graph, vertex_excluded)
         self.prev_hypothesis_safety = 1.0
@@ -110,8 +120,9 @@ class HypothesisTreeQueue(HypothesisQueue):
         vertex_excluded: VertexPropertyMap = previous_vertex_excluded.copy()
         for v in graph.vertices():
             v_cell_face = tuple(vertex_cell_decomp_edge[v].a)
-            if v_cell_face == least_safe_cell_face or (v_cell_face[0] == least_safe_cell_face[1]
-                                                       and v_cell_face[1] == least_safe_cell_face[0]):
+            if v_cell_face == least_safe_cell_face or (
+                v_cell_face[0] == least_safe_cell_face[1] and v_cell_face[1] == least_safe_cell_face[0]
+            ):
                 vertex_excluded[v] = True
         self.prev_hypothesis_safety = 0
         return vertex_excluded, prev_likelihood
@@ -119,7 +130,9 @@ class HypothesisTreeQueue(HypothesisQueue):
     def push(self, cell_face, hypothesis_likelihood, current_vertex_excluded: VertexPropertyMap):
         # Add hypothesis using the negative likelihoods as priorities,
         #   since heapq takes the smallest priority item when calling heappop()
-        heapq.heappush(self.cell_faces_queue, (-hypothesis_likelihood, self.n_added, cell_face, current_vertex_excluded))
+        heapq.heappush(
+            self.cell_faces_queue, (-hypothesis_likelihood, self.n_added, cell_face, current_vertex_excluded)
+        )
         self.n_added += 1
 
     def __str__(self):
@@ -131,8 +144,7 @@ class HypothesisTreeQueue(HypothesisQueue):
 
 class ShortestPathGraph(ABC):
 
-    def __init__(self, cell_decomposition: SafetyCellDecomposition,
-                 start_position, goal_position):
+    def __init__(self, cell_decomposition: SafetyCellDecomposition, start_position, goal_position):
         self.cell_decomposition = cell_decomposition
 
     def find_paths(self, n_paths=1, return_costs=False):
@@ -144,8 +156,13 @@ class ShortestPathGraph(ABC):
 
 class NavigationGraph(ShortestPathGraph):
 
-    def __init__(self, cell_decomposition: SafetyCellDecomposition,
-                 start_position, goal_position):
+    def __init__(
+        self,
+        cell_decomposition: SafetyCellDecomposition,
+        start_position,
+        goal_position,
+        time_counter: Optional[TimeCounter] = None,
+    ):
         super().__init__(cell_decomposition, start_position, goal_position)
 
         graph = Graph(directed=False)
@@ -194,7 +211,7 @@ class NavigationGraph(ShortestPathGraph):
             # Get the vertices that make up this cell
             # For each pair of vertices, create a distance graph vertex at their midpoint
             face_vertices_lists: List[List[int]] = []
-            for (i, j) in [(0, 1), (0, 2), (1, 2)]:
+            for i, j in [(0, 1), (0, 2), (1, 2)]:
                 v1 = cell_decomposition.delaunay.simplices[cell_idx, i]
                 v2 = cell_decomposition.delaunay.simplices[cell_idx, j]
                 range1 = cell_decomposition.get_vertex_range(v1)
@@ -227,7 +244,7 @@ class NavigationGraph(ShortestPathGraph):
             # current_cell_face_vertices is now a list of length 3,
             # containing a list for all the face vertices on each of the 3 cell edges.
             # Connect the face vertices of this cell to all other face vertices on other cell edges
-            for (i, j) in [(0, 1), (0, 2), (1, 2)]:
+            for i, j in [(0, 1), (0, 2), (1, 2)]:
                 face1_vertices: List[int] = face_vertices_lists[i]
                 face2_vertices: List[int] = face_vertices_lists[j]
                 for v1 in face1_vertices:
@@ -281,8 +298,9 @@ class NavigationGraph(ShortestPathGraph):
         # Also connect the start to the goal if they are in the same cell,
         # or both not in any cell and visible to each other
         if self.start_cell == self.goal_cell:
-            if self.start_cell != -1 or (self.start_cell == -1 and
-                                         cell_decomposition.check_point_visible(start_position, goal_position)):
+            if self.start_cell != -1 or (
+                self.start_cell == -1 and cell_decomposition.check_point_visible(start_position, goal_position)
+            ):
                 e = graph.add_edge(start_vertex, goal_vertex)
                 edge_weights[e] = calculate_edge_distance(e)
                 edge_cells[e] = self.start_cell
@@ -303,9 +321,9 @@ class NavigationGraph(ShortestPathGraph):
         self.obstacles_to_face_vertices_dict = obstacles_to_face_vertices_dict
 
     # TODO this function could be moved to multiple_hypothesis_planning module
-    def find_multiple_range_shortest_paths(self, max_n_paths: int, safety_threshold=0.95,
-                                           min_safety_prune=0.10,
-                                           return_excluded_vertices: bool = False):
+    def find_multiple_range_shortest_paths(
+        self, max_n_paths: int, safety_threshold=0.95, min_safety_prune=0.10, return_excluded_vertices: bool = False
+    ):
         """
         Algorithm for finding path hypotheses, using different behaviors for short,
         medium, and long-range zones.
@@ -379,10 +397,15 @@ class NavigationGraph(ShortestPathGraph):
                 # No more edges to try; no more candidate paths can be generated
                 break
 
-            path, distance_cost = find_shortest_path(graph, vertex_positions,
-                                                                  edge_weights, start, goal,
-                                                                  excluded_vertices=vertex_excluded,
-                                                                  return_safety_cost=False)
+            path, distance_cost = find_shortest_path(
+                graph,
+                vertex_positions,
+                edge_weights,
+                start,
+                goal,
+                excluded_vertices=vertex_excluded,
+                return_safety_cost=False,
+            )
 
             if len(path) == 0:
                 # No more paths possible, done with multiple-hypothesis path search
@@ -416,10 +439,10 @@ class NavigationGraph(ShortestPathGraph):
             cells = []
             edges = []
 
-            for i in range(len(vertex_indices)-1):
+            for i in range(len(vertex_indices) - 1):
                 # For each pair of vertices, get the cell that the edge between them passes through
                 v1 = vertex_indices[i]
-                v2 = vertex_indices[i+1]
+                v2 = vertex_indices[i + 1]
 
                 e = graph.edge(v1, v2)
                 cells.append(edge_cells[e])
@@ -437,8 +460,7 @@ class NavigationGraph(ShortestPathGraph):
                 continue
 
             try:
-                new_path = (NavigationPath(cells, edges, vertex_indices,
-                                            cell_decomposition=self.cell_decomposition))
+                new_path = NavigationPath(cells, edges, vertex_indices, cell_decomposition=self.cell_decomposition)
                 # Check if this candidate path is already in the set of paths
                 path_is_duplicate = False
                 if DISALLOW_DUPLICATE_PATHS:
@@ -464,13 +486,11 @@ class NavigationGraph(ShortestPathGraph):
                 print("The cells are: " + str(cells))
                 print("The vertices are: " + str(vertex_indices))
 
-
             # Break, if we found a path that meets the safety goal
             path_safety = math.exp(-safety_cost)
 
             if path_safety >= safety_threshold:
                 break
-
 
         if return_excluded_vertices:
             return paths, distance_costs, safety_costs, vertex_excluded_list
@@ -488,9 +508,9 @@ class NavigationGraph(ShortestPathGraph):
         return np.array(xy_list)
 
     def plot(self, ax: plt.Axes = None, show_edge_weights=False):
-        """ DEPRECATED - use plotting module instead. """
+        """DEPRECATED - use plotting module instead."""
         if ax is None:
-            ax = plt.subplot(1,1,1)
+            ax = plt.subplot(1, 1, 1)
         ax.axis("equal")
 
         cell_vertex_size = 12
@@ -515,25 +535,23 @@ class NavigationGraph(ShortestPathGraph):
             face_y.append(p[1])
 
         # Plot the vertices
-        ax.plot(face_x, face_y, '.', c=vertex_color, markersize=face_vertex_size, zorder=5)
+        ax.plot(face_x, face_y, ".", c=vertex_color, markersize=face_vertex_size, zorder=5)
 
         # Plot the start and goal
         start_position = vertex_position[self.start_vertex].a
         goal_position = vertex_position[self.goal_vertex].a
-        ax.plot(start_position[0], start_position[1], '^',
-                c=start_color, markersize=cell_vertex_size, zorder=7)
-        ax.plot(goal_position[0], goal_position[1], '*',
-                c=goal_color, markersize=cell_vertex_size, zorder=7)
+        ax.plot(start_position[0], start_position[1], "^", c=start_color, markersize=cell_vertex_size, zorder=7)
+        ax.plot(goal_position[0], goal_position[1], "*", c=goal_color, markersize=cell_vertex_size, zorder=7)
 
         # Plot all edges
         for e in self.graph.edges():
             p1 = vertex_position[e.source()].a
             p2 = vertex_position[e.target()].a
-            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], '-', c=edge_color, linewidth=1.0, zorder=4)
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], "-", c=edge_color, linewidth=1.0, zorder=4)
 
         # self.cell_decomposition.plot(ax=ax, gray=True, show_labels=False)
         from plotting import CellDecompositionPlotter
+
         CellDecompositionPlotter(self.cell_decomposition, ax=ax)
 
         return ax
-

@@ -8,6 +8,7 @@ from planner.cell_decomposition import SafetyCellDecomposition
 from planner.navigation_graphs import NavigationGraph
 from planner.navigation_utils import NavigationPath
 from planner.slam import ObstacleSLAM
+from planner.time_counter import TimeCounter, StubTimeCounter
 
 
 class MultipleHypothesisPlanningResult(object):
@@ -17,8 +18,9 @@ class MultipleHypothesisPlanningResult(object):
     as well as references to the cell decomposition, distance graph, and safety graph.
     """
 
-    def __init__(self, paths, costs, distance_costs, safety_costs,
-                 cell_decomposition, distance_graph, vertex_excluded_list):
+    def __init__(
+        self, paths, costs, distance_costs, safety_costs, cell_decomposition, distance_graph, vertex_excluded_list
+    ):
         # Sort the paths in order of cost
         path_indices = [i for i in range(len(paths))]
         path_indices.sort(key=lambda path_idx: costs[path_idx])
@@ -35,7 +37,7 @@ class MultipleHypothesisPlanningResult(object):
         self.safest_hypotheses = paths
         self.cell_decomposition: SafetyCellDecomposition = cell_decomposition
         self.distance_graph: NavigationGraph = distance_graph
-        self.vertex_excluded_list=vertex_excluded_list
+        self.vertex_excluded_list = vertex_excluded_list
 
     @property
     def best_path(self) -> Optional[NavigationPath]:
@@ -87,14 +89,14 @@ class MultipleHypothesisPlanningResult(object):
         remaining_path_distance = distance
         vertices = path.graph_vertices
         vertex_positions = self.distance_graph.graph.vp["position"]
-        for v_idx in range(len(vertices)-1):
+        for v_idx in range(len(vertices) - 1):
             # Get the length of the next line segment in the path
             p1 = vertex_positions[vertices[v_idx]].a
-            p2 = vertex_positions[vertices[v_idx+1]].a
+            p2 = vertex_positions[vertices[v_idx + 1]].a
             segment = p2 - p1
             segment_length = np.linalg.norm(segment)
             if segment_length > remaining_path_distance:
-                goal = p1 + (segment/segment_length) * remaining_path_distance
+                goal = p1 + (segment / segment_length) * remaining_path_distance
                 is_global_goal = False
                 break
             else:
@@ -108,10 +110,16 @@ class MultipleHypothesisPlanningResult(object):
 
 class MultipleHypothesisPlanner(object):
 
-    def __init__(self, robot_width: float, slam: ObstacleSLAM,
-                 safety_probability: SafetyProbability,
-                 range_short=5, range_medium=15,
-                 boundary=None):
+    def __init__(
+        self,
+        robot_width: float,
+        slam: ObstacleSLAM,
+        safety_probability: SafetyProbability,
+        range_short=5,
+        range_medium=15,
+        boundary=None,
+        time_counter: Optional[TimeCounter] = None,
+    ):
         """
 
         Parameters
@@ -121,21 +129,37 @@ class MultipleHypothesisPlanner(object):
         """
         obstacles = slam.get_landmarks_estimate()
 
-        self.cell_decomposition = SafetyCellDecomposition(slam=slam, robot_width=robot_width,
-                                                          safety_probability=safety_probability,
-                                                          range_short=range_short,
-                                                          range_medium=range_medium,
-                                                          boundary=boundary)
+        if time_counter is None:
+            time_counter = StubTimeCounter()
+
+        self.time_counter = time_counter
+
+        with self.time_counter.count("construct_cell_decomposition"):
+            self.cell_decomposition = SafetyCellDecomposition(
+                slam=slam,
+                robot_width=robot_width,
+                safety_probability=safety_probability,
+                range_short=range_short,
+                range_medium=range_medium,
+                boundary=boundary,
+                time_counter=time_counter,
+            )
 
         if obstacles is None:
             obstacles = []
         self.obstacles = obstacles
         self.safety_goal = safety_probability.probability
 
-    def find_paths(self, start_position, goal_position, n_hypotheses=1,
-                   distance_weight=0.5, safety_weight=0.5, safety_normalize_threshold=0.99,
-                   min_safety_prune=0.10) \
-            -> MultipleHypothesisPlanningResult:
+    def find_paths(
+        self,
+        start_position,
+        goal_position,
+        n_hypotheses=1,
+        distance_weight=0.5,
+        safety_weight=0.5,
+        safety_normalize_threshold=0.99,
+        min_safety_prune=0.10,
+    ) -> MultipleHypothesisPlanningResult:
         """
         Find multiple hypothesis paths from the start to goal, using given weights on path distance
         and safety, and return the paths sorted in order of cost.
@@ -159,13 +183,20 @@ class MultipleHypothesisPlanner(object):
         MultipleHypothesisPlanningResult
 
         """
-        distance_graph = NavigationGraph(self.cell_decomposition, start_position, goal_position)
+        with self.time_counter.count("construct_navigation_graph"):
+            distance_graph = NavigationGraph(
+                self.cell_decomposition, start_position, goal_position, time_counter=self.time_counter
+            )
 
-        paths, distance_costs, safety_costs, vertex_excluded_list = \
-            distance_graph.find_multiple_range_shortest_paths(max_n_paths=n_hypotheses,
-                                                              safety_threshold=self.safety_goal,
-                                                              min_safety_prune=min_safety_prune,
-                                                              return_excluded_vertices=True)
+        with self.time_counter.count("navigation_graph_path_search"):
+            paths, distance_costs, safety_costs, vertex_excluded_list = (
+                distance_graph.find_multiple_range_shortest_paths(
+                    max_n_paths=n_hypotheses,
+                    safety_threshold=self.safety_goal,
+                    min_safety_prune=min_safety_prune,
+                    return_excluded_vertices=True,
+                )
+            )
 
         # # Normalize costs, unless no paths were found
         if len(paths) > 0:
@@ -182,13 +213,19 @@ class MultipleHypothesisPlanner(object):
             else:
                 normalized_safety_costs = safety_costs
 
-            costs = [dc * distance_weight + sc * safety_weight
-                      for dc, sc in zip(normalized_distance_costs, normalized_safety_costs)]
+            costs = [
+                dc * distance_weight + sc * safety_weight
+                for dc, sc in zip(normalized_distance_costs, normalized_safety_costs)
+            ]
         else:
             costs = []
 
-        return MultipleHypothesisPlanningResult(paths, costs, distance_costs=distance_costs,
-                                                safety_costs=safety_costs,
-                                                cell_decomposition=self.cell_decomposition,
-                                                distance_graph=distance_graph,
-                                                vertex_excluded_list=vertex_excluded_list)
+        return MultipleHypothesisPlanningResult(
+            paths,
+            costs,
+            distance_costs=distance_costs,
+            safety_costs=safety_costs,
+            cell_decomposition=self.cell_decomposition,
+            distance_graph=distance_graph,
+            vertex_excluded_list=vertex_excluded_list,
+        )
