@@ -83,8 +83,8 @@ if not save_video:
         sim.update()
         plotter.update()
         frame_count += 1
-        if frame_count > 30 and DEBUG:
-            break
+        # if frame_count > 30 and DEBUG:
+        #     break
 else:
     plt.ion()  # Required for
     plotter = SimulationPlotter(sim=sim, plot_bounds=bounds, interactive=False)
