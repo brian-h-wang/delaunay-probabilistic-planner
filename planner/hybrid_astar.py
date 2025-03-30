@@ -21,8 +21,8 @@ from graph_tool import Graph, Vertex, Edge, VertexPropertyMap, EdgePropertyMap
 from graph_tool.search import AStarVisitor, astar_search, StopSearch
 from typing import List, Optional
 from numpy.typing import ArrayLike
-from abc import ABC
-from planner.utils import check_collision
+from planner.navigation_utils import ValidEdgeEvaluator
+
 
 class MotionPrimitives(object):
     """
@@ -65,24 +65,24 @@ class MotionPrimitives(object):
         if allow_reverse:
             # Add a primitive that causes the robot to reverse in a straight line
             self.n_primitives += 1
-            self.angular_rates.append(0.)
+            self.angular_rates.append(0.0)
             self.velocities.append(-velocity)
         # Define an array that stores the robot's final pose after executing each motion primitive
         self.motion_primitives = np.empty((self.n_primitives, 3))
         # for i, (steering_angle, v) in enumerate(zip(self.steering_angles, self.velocities)):
         for i, (v, angular_rate) in enumerate(zip(self.velocities, self.angular_rates)):
+
             def fun(t, y):  # Calculate change in x, y, angle
                 angle = math.radians(y[2])
-                return np.array([v * math.cos(angle),
-                                 v * math.sin(angle),
-                                 angular_rate])
+                return np.array([v * math.cos(angle), v * math.sin(angle), angular_rate])
                 # return np.array([v * math.cos(angle), v * math.sin(angle), steering_angle])
+
             # Integrate the robot kinematics forwards until it arrives
             # Compute the motion primitives as if the robot starts at x=0, y=0, theta=0
             # Then, we'll rotate the primitives into the robot frame when we want to use them
             #   calcualate an updated robot pose
             solution = solve_ivp(fun, (0, dt), np.zeros(3))  # [0,0,0] is robot "initial pose"
-            final_pose = solution.y[:,-1]
+            final_pose = solution.y[:, -1]
             self.motion_primitives[i, :] = final_pose
 
         cost = velocity * dt
@@ -125,11 +125,11 @@ class MotionPrimitives(object):
         assert type(angle) == int, "Angle must be an integer, specified in degrees"
         # Define rotation matrix for rotating the motion primitive into the robot frame
         angle_rad = math.radians(angle)
-        R = np.zeros((3,3), dtype=float)
-        R[0,0] = R[1,1] = math.cos(angle_rad)
-        R[1,0] = math.sin(angle_rad)
-        R[0,1] = -math.sin(angle_rad)
-        R[2,2] = 1
+        R = np.zeros((3, 3), dtype=float)
+        R[0, 0] = R[1, 1] = math.cos(angle_rad)
+        R[1, 0] = math.sin(angle_rad)
+        R[0, 1] = -math.sin(angle_rad)
+        R[2, 2] = 1
 
         # Calculate robot configurations after executing each motion primitive
         new_configs = np.empty((self.n_primitives, 3))
@@ -172,59 +172,16 @@ class MotionPrimitives(object):
         # v = self.drive_distance
         initial_pose = np.array([x, y, angle])
         for i, (velocity, angular_rate) in enumerate(zip(self.velocities, self.angular_rates)):
+
             def fun(t, y):  # Calculate change in x, y, angle
                 angle = math.radians(y[2])
-                return np.array([velocity * math.cos(angle),
-                                 velocity * math.sin(angle),
-                                 angular_rate])
+                return np.array([velocity * math.cos(angle), velocity * math.sin(angle), angular_rate])
+
             # Integrate the robot kinematics forwards until it arrives
             t_eval = np.linspace(0, dt, n_steps)
             solution = solve_ivp(fun, (0, dt), initial_pose, t_eval=t_eval)
-            trajectories[i,:,:] = solution.y
+            trajectories[i, :, :] = solution.y
         return trajectories
-
-
-class ValidEdgeEvaluator(ABC):
-
-    def __init__(self):
-        pass
-
-    def check_edge(self, position1, position2):
-        """
-        Given a pair of 2D vertices, check if an edge should be created between them.
-
-        Parameters
-        ----------
-        position1: array_like
-        position2: array_like
-            The 2D position of the two vertices, each as [x, y]
-
-        Returns
-        -------
-        is_valid, cost_scale : (bool, float)
-            is_valid is True if an edge should be created, and False if not.
-            edge_cost is a weight scaling value that should be multiplied by the edge weight.
-            This value should be ignored if is_valid is False.
-
-        """
-        return True, 1
-
-
-class CircularObstacleEdgeEvaluator(ValidEdgeEvaluator):
-
-    def __init__(self, obstacles: ArrayLike, robot_width: float = 0):
-        super().__init__()
-        assert obstacles.shape[1] == 3, "Obstacles array must have each row as [x, y, diameter]"
-        self.obstacles = obstacles
-        self.robot_width = robot_width
-
-    def check_edge(self, position1, position2):
-        position = np.array(position2, dtype=float)
-        is_valid = not check_collision(robot_position=position,
-                                       robot_width=self.robot_width,
-                                       obstacle_positions=self.obstacles[:,0:2],
-                                       obstacle_diameters=self.obstacles[:,2])
-        return is_valid, 1.
 
 
 def euclidean_distance_heuristic(v, goal_position, x_cont, y_cont):
@@ -257,17 +214,29 @@ def euclidean_distance_heuristic(v, goal_position, x_cont, y_cont):
 
 class HybridAStarVisitor(AStarVisitor):
 
-    def __init__(self, graph: Graph,
-                 start_pose: ArrayLike, goal_position: ArrayLike,
-                 motion_primitives: MotionPrimitives,
-                 xy_resolution: float, angle_resolution: int,
-                 close_enough: float, far_enough: Optional[float],
-                 x_disc: VertexPropertyMap, y_disc: VertexPropertyMap, angle_disc: VertexPropertyMap,
-                 x_cont: VertexPropertyMap, y_cont: VertexPropertyMap, angle_cont: VertexPropertyMap,
-                 weight: EdgePropertyMap, dist: VertexPropertyMap, cost: VertexPropertyMap,
-                 edge_evaluator: ValidEdgeEvaluator,
-                 max_n_vertices: int = -1,
-                 timeout_n_vertices: int = -1):
+    def __init__(
+        self,
+        graph: Graph,
+        start_pose: ArrayLike,
+        goal_position: ArrayLike,
+        motion_primitives: MotionPrimitives,
+        xy_resolution: float,
+        angle_resolution: int,
+        close_enough: float,
+        far_enough: Optional[float],
+        x_disc: VertexPropertyMap,
+        y_disc: VertexPropertyMap,
+        angle_disc: VertexPropertyMap,
+        x_cont: VertexPropertyMap,
+        y_cont: VertexPropertyMap,
+        angle_cont: VertexPropertyMap,
+        weight: EdgePropertyMap,
+        dist: VertexPropertyMap,
+        cost: VertexPropertyMap,
+        edge_evaluator: ValidEdgeEvaluator,
+        max_n_vertices: int = -1,
+        timeout_n_vertices: int = -1,
+    ):
         """
 
         Parameters
@@ -327,8 +296,7 @@ class HybridAStarVisitor(AStarVisitor):
 
         # Add the start cell as a vertex
         v0 = graph.add_vertex()
-        xc, yc, ac = self.continuous_to_discrete(start_pose[0], start_pose[1],
-                                                 math.degrees(start_pose[2]))
+        xc, yc, ac = self.continuous_to_discrete(start_pose[0], start_pose[1], math.degrees(start_pose[2]))
         self.x_disc[v0] = xc
         self.y_disc[v0] = yc
         self.angle_disc[v0] = ac
@@ -346,10 +314,8 @@ class HybridAStarVisitor(AStarVisitor):
 
         # search stops if this many vertices explored without getting any closer to the goal
         self.timeout_n_vertices = timeout_n_vertices  #
-        self._closest_distance_to_goal = float('inf')
+        self._closest_distance_to_goal = float("inf")
         self._n_vertices_since_closer_to_goal = 0
-
-
 
     def continuous_to_discrete(self, x, y, angle):
         x_cell = math.floor(x / self.xy_resolution)
@@ -381,13 +347,14 @@ class HybridAStarVisitor(AStarVisitor):
             # Print a warning if the motion primitive caused the search to stay in the same cell
             # This means the motion primitives should cover more distance.
             if current_cell == neighbor_cell:
-                print("Warning: Search stayed in same discrete cell after motion. Increase motion primitive velocity or time.")
+                print(
+                    "Warning: Search stayed in same discrete cell after motion. Increase motion primitive velocity or time."
+                )
                 continue
 
             # Check if edge from this vertex to the potential neighbor is valid
             # Depending on edge_evaluator, checks conditions such as obstacle collisions
-            edge_valid, edge_cost_scale = self.edge_evaluator.check_edge([x, y],
-                                                                         [neighbor_x, neighbor_y])
+            edge_valid, edge_cost_scale = self.edge_evaluator.check_edge([x, y], [neighbor_x, neighbor_y])
             # Edge is invalid (e.g. in collision with obstacle) - do not add this vertex
             if not edge_valid:
                 continue
@@ -405,7 +372,7 @@ class HybridAStarVisitor(AStarVisitor):
                 self.x_cont[v] = neighbor_x
                 self.y_cont[v] = neighbor_y
                 self.angle_cont[v] = neighbor_angle
-                self.dist[v] = self.cost[v] = float('inf')
+                self.dist[v] = self.cost[v] = float("inf")
 
             # Check if the graph already contains an edge from this vertex to the neighbor
             for e in u.out_edges():
@@ -437,8 +404,7 @@ class HybridAStarVisitor(AStarVisitor):
             #     self.success = True
             #     self.goal_vertex = e.target()
             #     raise StopSearch()
-            distance_from_start = math.sqrt((x - self.start_position[0])**2 +
-                                            (y - self.start_position[1])**2)
+            distance_from_start = math.sqrt((x - self.start_position[0]) ** 2 + (y - self.start_position[1]) ** 2)
             if distance_from_start >= self.far_enough:
                 self.success = True
                 self.goal_vertex = e.target()
@@ -447,12 +413,11 @@ class HybridAStarVisitor(AStarVisitor):
         # First check if we've found the goal
         # Check if the continuous coordinate for the edge target is close enough to the goal
         # If yes, search is done
-        distance_to_goal = math.sqrt((x - self.goal_position[0])**2 + (y - self.goal_position[1])**2)
+        distance_to_goal = math.sqrt((x - self.goal_position[0]) ** 2 + (y - self.goal_position[1]) ** 2)
         if distance_to_goal < self.close_enough:
             self.success = True
             self.goal_vertex = e.target()
             raise StopSearch()
-
 
         # Edge does not lead to the goal - continue with method
         # Update the continuous coordinates of the graph cell
@@ -482,7 +447,7 @@ class HybridAStarVisitor(AStarVisitor):
         # If the visitor has explored the maximum number of vertices, conclude the search
         x = self.x_cont[u]
         y = self.y_cont[u]
-        distance_to_goal = math.sqrt((x - self.goal_position[0])**2 + (y - self.goal_position[1])**2)
+        distance_to_goal = math.sqrt((x - self.goal_position[0]) ** 2 + (y - self.goal_position[1]) ** 2)
         # Record if we are getting any closer to the goal
         # Search terminates if self.timeout_n_vertices is set, and we explore this many vertices
         #   without getting any closer to the goal
@@ -491,31 +456,38 @@ class HybridAStarVisitor(AStarVisitor):
             self._n_vertices_since_closer_to_goal = 0
         else:
             self._n_vertices_since_closer_to_goal += 1
-        if self.max_n_vertices > 0: # max_n_vertices is set to -1 by default (disabled)
+        if self.max_n_vertices > 0:  # max_n_vertices is set to -1 by default (disabled)
             if self.n_vertices_finished >= self.max_n_vertices:
                 print("Terminating search: explored max of %d vertices" % self.max_n_vertices)
                 raise StopSearch()
         if self.timeout_n_vertices > 0:
             if self._n_vertices_since_closer_to_goal >= self.timeout_n_vertices:
-                print("Terminating search: explored %d vertices without getting closer to goal" %
-                      self.timeout_n_vertices)
+                print(
+                    "Terminating search: explored %d vertices without getting closer to goal" % self.timeout_n_vertices
+                )
                 raise StopSearch()
 
 
 class HybridAStarPlanner(object):
 
-    def __init__(self, edge_evaluator: ValidEdgeEvaluator,
-                 xy_resolution: float = 0.1, angle_resolution: int = 60,
-                 close_enough: float = 0.1, far_enough: float = None,
-                 n_motion_primitives: int = 3,
-                 # motion_primitive_length: float = None,
-                 # max_steering_angle: int = 40,
-                 motion_primitive_dt: float = 0.2,
-                 motion_primitive_velocity: float = 2.0,
-                 max_angular_rate: int = 90,
-                 allow_reverse=True, n_attempts_reduced_resolution: int = 0,
-                 max_n_vertices: int = -1,
-                 timeout_n_vertices: int = -1):
+    def __init__(
+        self,
+        edge_evaluator: ValidEdgeEvaluator,
+        xy_resolution: float = 0.1,
+        angle_resolution: int = 60,
+        close_enough: float = 0.1,
+        far_enough: float = None,
+        n_motion_primitives: int = 3,
+        # motion_primitive_length: float = None,
+        # max_steering_angle: int = 40,
+        motion_primitive_dt: float = 0.2,
+        motion_primitive_velocity: float = 2.0,
+        max_angular_rate: int = 90,
+        allow_reverse=True,
+        n_attempts_reduced_resolution: int = 0,
+        max_n_vertices: int = -1,
+        timeout_n_vertices: int = -1,
+    ):
         """
 
         Parameters
@@ -546,8 +518,9 @@ class HybridAStarPlanner(object):
             If far_enough parameter is set, each halved resolution will also halve the far_enough
             distance, to prevent spending too long on the path search.
         """
-        assert type(n_attempts_reduced_resolution) == int and \
-               n_attempts_reduced_resolution >= 0, "n_attempts must be 0 or a positive integer"
+        assert (
+            type(n_attempts_reduced_resolution) == int and n_attempts_reduced_resolution >= 0
+        ), "n_attempts must be 0 or a positive integer"
         # if n_attempts_reduced_resolution > 0:
         #     assert motion_primitive_length is None, "For multiple-resolution planning attempts, " \
         #                                             "motion primitive length should be " \
@@ -557,10 +530,10 @@ class HybridAStarPlanner(object):
         self.timeout_n_vertices = timeout_n_vertices
         self.xy_resolution = xy_resolution
         # Check that angle discretization is valid
-        assert (360 % angle_resolution == 0), "360 degrees must be divisible by angle resolution."
+        assert 360 % angle_resolution == 0, "360 degrees must be divisible by angle resolution."
         # assert (max_steering_angle % angle_resolution == 0), "Max steering angle must be divisible " \
         #                                                      "by angle resolution."
-        self.angle_resolution = angle_resolution # angle resolution is in degrees
+        self.angle_resolution = angle_resolution  # angle resolution is in degrees
         self.n_angles = 360 // angle_resolution  # number of discrete angles to consider
         self.close_enough = close_enough
         self.far_enough = far_enough
@@ -569,8 +542,7 @@ class HybridAStarPlanner(object):
         # Angle changes are evenly spaced between - and + max steering angle
         # steering_angles = np.linspace(-max_steering_angle, max_steering_angle,
         #                               n_motion_primitives).astype(int)
-        angular_rates = np.linspace(-max_angular_rate, max_angular_rate,
-                                    n_motion_primitives).astype(int)
+        angular_rates = np.linspace(-max_angular_rate, max_angular_rate, n_motion_primitives).astype(int)
 
         # Show warnings if motion primitives are not valid
         if n_motion_primitives % 2 == 0:
@@ -584,14 +556,14 @@ class HybridAStarPlanner(object):
         self.motion_primitive_velocity = motion_primitive_velocity
         self.motion_primitive_dt = motion_primitive_dt
 
-        self.motion_primitives = MotionPrimitives(velocity=motion_primitive_velocity,
-                                                  dt=motion_primitive_dt,
-                                                  angular_rates=angular_rates,
-                                                  allow_reverse=allow_reverse)
-
+        self.motion_primitives = MotionPrimitives(
+            velocity=motion_primitive_velocity,
+            dt=motion_primitive_dt,
+            angular_rates=angular_rates,
+            allow_reverse=allow_reverse,
+        )
 
         self.edge_evaluator = edge_evaluator
-
 
     def find_path(self, start_pose, goal_position):
         """
@@ -623,11 +595,13 @@ class HybridAStarPlanner(object):
                 motion_primitives_attempt = self.motion_primitives
             # Other attempts: use motion primitives with reduced resolution
             else:
-                print("Attempt %d: Planning with resolution %.3f" % (attempt+1, xy_resolution_attempt))
-                motion_primitives_attempt = MotionPrimitives(velocity=self.motion_primitive_velocity,
-                                                             dt=dt_attempt,
-                                                             angular_rates=self.angular_rates,
-                                                     allow_reverse=self.allow_reverse)
+                print("Attempt %d: Planning with resolution %.3f" % (attempt + 1, xy_resolution_attempt))
+                motion_primitives_attempt = MotionPrimitives(
+                    velocity=self.motion_primitive_velocity,
+                    dt=dt_attempt,
+                    angular_rates=self.angular_rates,
+                    allow_reverse=self.allow_reverse,
+                )
             # Run the A* search and return a series of XY waypoints that the robot can follow to the goal
             graph = Graph()
 
@@ -646,27 +620,42 @@ class HybridAStarPlanner(object):
             y_cont = graph.new_vertex_property("float")
             angle_cont = graph.new_vertex_property("float")
 
-            visitor = HybridAStarVisitor(graph=graph,
-                                         start_pose=start_pose, goal_position=goal_position,
-                                         motion_primitives=motion_primitives_attempt,
-                                         xy_resolution=xy_resolution_attempt,
-                                         angle_resolution=self.angle_resolution,
-                                         close_enough=self.close_enough, far_enough=self.far_enough,
-                                         x_disc=x_disc, y_disc=y_disc, angle_disc=angle_disc,
-                                         x_cont=x_cont, y_cont=y_cont, angle_cont=angle_cont,
-                                         weight=weight, dist=dist, cost=cost,
-                                         edge_evaluator=self.edge_evaluator,
-                                         max_n_vertices=self.max_n_vertices,
-                                         timeout_n_vertices=self.timeout_n_vertices)
+            visitor = HybridAStarVisitor(
+                graph=graph,
+                start_pose=start_pose,
+                goal_position=goal_position,
+                motion_primitives=motion_primitives_attempt,
+                xy_resolution=xy_resolution_attempt,
+                angle_resolution=self.angle_resolution,
+                close_enough=self.close_enough,
+                far_enough=self.far_enough,
+                x_disc=x_disc,
+                y_disc=y_disc,
+                angle_disc=angle_disc,
+                x_cont=x_cont,
+                y_cont=y_cont,
+                angle_cont=angle_cont,
+                weight=weight,
+                dist=dist,
+                cost=cost,
+                edge_evaluator=self.edge_evaluator,
+                max_n_vertices=self.max_n_vertices,
+                timeout_n_vertices=self.timeout_n_vertices,
+            )
 
-            h = lambda v: euclidean_distance_heuristic(v, goal_position=goal_position,
-                                                       x_cont=x_cont, y_cont=y_cont)
+            h = lambda v: euclidean_distance_heuristic(v, goal_position=goal_position, x_cont=x_cont, y_cont=y_cont)
 
             # Run the search
-            dist, pred = astar_search(graph, visitor.start_vertex,
-                                      weight=weight, visitor=visitor,
-                                      dist_map=dist, cost_map=cost,
-                                      heuristic=h, implicit=True)
+            dist, pred = astar_search(
+                graph,
+                visitor.start_vertex,
+                weight=weight,
+                visitor=visitor,
+                dist_map=dist,
+                cost_map=cost,
+                heuristic=h,
+                implicit=True,
+            )
             # Save graph properties, so they are stored in the HybridAStarResult
             graph.vertex_properties["x_disc"] = x_disc
             graph.vertex_properties["y_disc"] = y_disc
@@ -678,12 +667,17 @@ class HybridAStarPlanner(object):
             graph.edge_properties["motion_primitive_index"] = visitor.motion_primitive_index
             if visitor.success:
                 # Found a path, create the Result object
-                result = HybridAStarResult(graph, dist, pred,
-                                         start_vertex=visitor.start_vertex, goal_vertex=visitor.goal_vertex,
-                                         motion_primitives=motion_primitives_attempt)
+                result = HybridAStarResult(
+                    graph,
+                    dist,
+                    pred,
+                    start_vertex=visitor.start_vertex,
+                    goal_vertex=visitor.goal_vertex,
+                    motion_primitives=motion_primitives_attempt,
+                )
             attempt += 1
-            xy_resolution_attempt /= 2.
-            dt_attempt /= 2.
+            xy_resolution_attempt /= 2.0
+            dt_attempt /= 2.0
 
         return result
 
@@ -731,18 +725,19 @@ class HybridAStarResult(object):
         n_waypoints = (len(vertices) - 1) * points_per_motion_primitive
         pose_array = np.empty((n_waypoints, 3), dtype=float)
 
-        for vertex_idx in range(len(vertices)-1):
+        for vertex_idx in range(len(vertices) - 1):
             v_current = vertices[vertex_idx]
-            v_next = vertices[vertex_idx+1]
+            v_next = vertices[vertex_idx + 1]
             x = self.graph.vp.x_cont[v_current]
             y = self.graph.vp.y_cont[v_current]
             theta = self.graph.vp.angle_cont[v_current]
             # When calculating motion primitives, calculate n_points+1 steps,
             # since the last point will overlap with the next motion primitive start point
-            mp_array = self.motion_primitives.get_motion_primitive_trajectories(x, y, theta,
-                                                                          n_steps=points_per_motion_primitive+1)
+            mp_array = self.motion_primitives.get_motion_primitive_trajectories(
+                x, y, theta, n_steps=points_per_motion_primitive + 1
+            )
             # Remove the last point
-            mp_array = mp_array[:,:,0:-1]
+            mp_array = mp_array[:, :, 0:-1]
             e = self.graph.edge(v_current, v_next)
             mp_idx = self.graph.ep.motion_primitive_index[e]
             mp_x = mp_array[mp_idx, 0, :]
@@ -758,7 +753,7 @@ class HybridAStarResult(object):
     def get_path_length(self):
         vertices = self._get_vertices()
         # robot moves a fixed distance between each pair of vertices, based on the motion primitives
-        return self.motion_primitives.dt * self.motion_primitives.velocities[0] * (len(vertices)-1)
+        return self.motion_primitives.dt * self.motion_primitives.velocities[0] * (len(vertices) - 1)
 
     def get_search_tree_line_segments(self, points_per_motion_primitive: int = 5) -> ArrayLike:
         # Color edges
@@ -789,17 +784,13 @@ class HybridAStarResult(object):
                     line_segment_in_path.append(True)
                 else:
                     line_segment_in_path.append(False)
-                line_segments.append(mp[mp_idx,0:2,:].T)
+                line_segments.append(mp[mp_idx, 0:2, :].T)
         return line_segments, line_segment_in_path
 
-
     def waypoints(self, points_per_motion_primitive: int = 5):
-        return self.poses(points_per_motion_primitive)[:,0:2]
+        return self.poses(points_per_motion_primitive)[:, 0:2]
 
-
-
-    def plot(self, ax=None, show_search_tree=False,
-             edge_color=(0.1, 0.1, 0.8), path_color=(0.4, 1.0, 0.4)):
+    def plot(self, ax=None, show_search_tree=False, edge_color=(0.1, 0.1, 0.8), path_color=(0.4, 1.0, 0.4)):
         """
 
         Parameters
@@ -815,7 +806,7 @@ class HybridAStarResult(object):
 
         """
         if ax is None:
-            ax = plt.subplot(1,1,1)
+            ax = plt.subplot(1, 1, 1)
 
         # Color edges
         in_path = self.graph.new_edge_property("bool", val=False)
@@ -850,6 +841,3 @@ class HybridAStarResult(object):
     @property
     def n_examined(self):
         return self.graph.num_vertices()
-
-
-

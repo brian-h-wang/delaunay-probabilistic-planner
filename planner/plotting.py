@@ -332,7 +332,7 @@ class BloatedObstacleEstimatePlotter(ObstaclePlotter):
     Plot obstacle mean and position, size uncertainty.
     """
 
-    def __init__(self, obstacle: Obstacle2D, n_std_devs: int = 2, ax: plt.Axes = None, label=None, color=None):
+    def __init__(self, obstacle: Obstacle2D, n_std_devs: int, ax: plt.Axes = None, label=None, color=None):
         """
 
         Parameters
@@ -347,47 +347,37 @@ class BloatedObstacleEstimatePlotter(ObstaclePlotter):
             Can be used to number different obstacles in the plot.
         """
 
+        # Plot the obstacle
         super().__init__(obstacle=obstacle, ax=ax, label=label, color=color)
 
-        ## Plot the mean
+        ## Plot the bloated area
         #
         position_mean = obstacle.pos_mean
+
+        bloat_radius = self.calculate_bloat_radius(obstacle, n_std_devs)
+
+        self.n_std_devs = n_std_devs
+        self.circle_bloat = patches.Circle(
+            position_mean, radius=bloat_radius, color=self.dark_blue, zorder=4, alpha=0.5
+        )
+        ax.add_patch(self.circle_bloat)
+
+    def update(self, obstacle: Obstacle2D, color=None):
+        super().update(obstacle, color=color)
+        self.circle_bloat.set_center(obstacle.pos_mean)
+        self.circle_bloat.set_radius(self.calculate_bloat_radius(obstacle, self.n_std_devs))
+
+    @staticmethod
+    def calculate_bloat_radius(obstacle: Obstacle2D, n_std_devs: int) -> float:
         position_cov = obstacle.pos_cov
+
         radius_mean = obstacle.size_mean / 2.0  # diameter to radius
         radius_std = math.sqrt(obstacle.size_var) / 2.0
 
-        pos_bloat = math.sqrt(max(position_cov[0, 0], position_cov[1, 1])) * n_std_devs
-        R = radius_mean + pos_bloat
-
-        circle_mean = patches.Circle(position_mean, radius=R, color=self.dark_blue, zorder=4, alpha=0.7)
-        ax.add_patch(circle_mean)
-
-        ## Plot the position uncertainty
-        # Show a light colored ellipse encompassing N std devs of the X and Y position uncertainty
-        # Also show a dotted line, and lighter colored region, of the ellipse plus radius mean,
-        #   plus N radius std devs
-        # if n_std_devs > 0:
-        # position_cov[0,0] += radius_mean
-        # position_cov[1,1] += radius_mean
-        # ellipse_xy = covariance_ellipse(position_mean, position_cov, ax,
-        #                                 n_std=n_std_devs,
-        #                                 facecolor=self.light_pink, zorder=5,
-        #                                 edgecolor=self.med_red, linewidth=0.5, alpha=0.5)
-        # xy_plus_size_cov = position_cov + np.eye(2) * (radius_mean)**2
-        # r = radius_mean
-        # TODO plotting ellipse plus size does not work yet
-        # ellipse_xy_plus_size = covariance_ellipse(position_mean, position_cov, ax,
-        #                                           n_std=n_std_devs,
-        #                                           extra_radius=1,
-        #                                           facecolor=self.light_pink,
-        #                                           linestyle="--", edgecolor=self.med_red,
-        #                                           zorder=0, alpha=0.5)
-
-        # ellipse_xy_plus_size = None
-
-        # self.n_std_devs = n_std_devs
-        # self.ellipse_xy: patches.Ellipse = ellipse_xy
-        # self.ellipse_xy_plus_size: patches.Ellipse = ellipse_xy_plus_size
+        # sqrt(x_std^2 + y_std^2) gives the diameter uncertainty, need to divide by 2
+        position_std = math.sqrt(position_cov[0, 0] + position_cov[1, 1]) / 2.0
+        bloat_radius = radius_mean + n_std_devs * (position_std + radius_std)
+        return bloat_radius
 
 
 class CellDecompositionPlotter(Plotter):
@@ -1132,6 +1122,7 @@ class BaselinePlannerSubplot(SubplotInterface):
     ):
         super().__init__(ax=ax, xlim=xlim, ylim=ylim, sim=sim, title=title)
         self.astar_plotter = None
+        # Dictionary of obstacle plotters keyed by obstacle index
         self.baseline_obstacles = {}
         self.baseline_path = None
         self.plot_search_tree = plot_search_tree
@@ -1144,9 +1135,14 @@ class BaselinePlannerSubplot(SubplotInterface):
         # Update obstacles
         obstacles = sim.slam.get_landmarks_estimate()
         for obs_idx, obstacle in enumerate(obstacles):
+            # Baseline ignores obstacles past the medium range zone
+            # Skip these obstacles so the plotting matches what the planner is doing
+            distance_to_obstacle = np.linalg.norm(obstacle.pos_mean.flatten() - sim.robot_position.flatten())
+            if distance_to_obstacle > sim.params.range_medium:
+                continue
             handle: Optional[ObstaclePlotter] = self.baseline_obstacles.setdefault(obs_idx, None)
             if handle is None:
-                self.baseline_obstacles[obs_idx] = ObstaclePlotter(obstacle, color=Plotter.med_blue, ax=self.ax)
+                self.baseline_obstacles[obs_idx] = BloatedObstacleEstimatePlotter(obstacle, n_std_devs=2, ax=self.ax)
             else:
                 handle.update(obstacle)
 

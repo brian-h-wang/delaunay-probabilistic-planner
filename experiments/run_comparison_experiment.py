@@ -23,10 +23,22 @@ parser.add_argument("--low_density", "-ld", action="store_true")
 parser.add_argument("--high_density", "-hd", action="store_true")
 parser.add_argument("--high_safety", "-hs", action="store_true")
 parser.add_argument("--clusters", "-c", action="store_true")
-parser.add_argument("--speed", "-s", type=float, default=None,
-                    help="Maximum robot speed, in m/s.")
-parser.add_argument("--n_hyp_list", "-hyp", nargs='+', help="List of number of hypotheses to test",
-                    required=False)
+parser.add_argument("--speed", "-s", type=float, default=None, help="Maximum robot speed, in m/s.")
+parser.add_argument("--n_hyp_list", "-hyp", nargs="+", help="List of number of hypotheses to test", required=False)
+parser.add_argument(
+    "--p-target",
+    "-pt",
+    type=float,
+    default=None,
+    help="Target probability of safely reaching the goal.",
+)
+parser.add_argument(
+    "--baseline-n-std",
+    "-bn",
+    type=float,
+    default=None,
+    help="Number of standard deviations baseline should bloat obstacles by.",
+)
 args = parser.parse_args()
 
 if args.low_density and args.high_density:
@@ -44,20 +56,20 @@ else:
 
 use_high_safety = args.high_safety
 
-subfolder = ''
+subfolder = ""
 if use_clusters:
-    subfolder += 'clusters'
+    subfolder += "clusters"
 else:
-    subfolder += 'uniform'
+    subfolder += "uniform"
 
 if use_high_safety:
-    subfolder += '-highsafety'
+    subfolder += "-highsafety"
 else:
-    subfolder += '-lowsafety'
+    subfolder += "-lowsafety"
 
 # Set up the output directory
 if args.output_dir is None:
-    output_dir = Path('results/' + datetime.now().strftime("Experiment_%m-%d-%Y_%H.%M.%S"))
+    output_dir = Path("results/" + datetime.now().strftime("Experiment_%m-%d-%Y_%H.%M.%S"))
 else:
     output_dir = Path(args.output_dir)
 output_dir = output_dir / subfolder
@@ -67,10 +79,11 @@ if not output_dir.exists():
 
 
 # Set up environment parameters
-n_environments = 20
+n_environments = 50
+# n_environments = 20
 x_min, x_max = (-2, 42)
 y_min, y_max = (0, 10)
-start_pose = np.array([0., 5., 0.])
+start_pose = np.array([0.0, 5.0, 0.0])
 goal_position = np.array([40, 5], dtype=float)
 
 
@@ -80,10 +93,21 @@ if use_high_safety:
     print("Using high safety setting")
     default_params.safety_probability = 0.999
 
+p_target = args.p_target
+if p_target is not None:
+    print("Using target probability of %.3f" % p_target)
+    default_params.safety_probability = p_target
+
+# Set n std devs parameter for baseline
+baseline_n_std = args.baseline_n_std
+if baseline_n_std is not None:
+    baseline_n_std: float = args.baseline_n_std
+    print("Running baseline with %.2f standard deviations" % baseline_n_std)
+    default_params.baseline_n_std_devs_bloat = baseline_n_std
+
 # Define spaces near the start and goal where no trees will be sampled
-w = default_params.robot_width * 3.  # no trees will generate within this distance of start and goal
-invalid_spaces = np.array([[start_pose[0], start_pose[1], w],
-                           [goal_position[0], goal_position[1], w]])
+w = default_params.robot_width * 3.0  # no trees will generate within this distance of start and goal
+invalid_spaces = np.array([[start_pose[0], start_pose[1], w], [goal_position[0], goal_position[1], w]])
 
 # Generate forest environments for experiments
 forests = []
@@ -114,31 +138,37 @@ max_tree_radius = 0.5
 # Generate N random forest environments, and run each method in each of the environments
 print("[INFO] Generating forest environments...")
 for i in range(n_environments):
-    print("  Generating forest environment with density %.2f [%d of %d]" % (density, i+1, n_environments),
-          end='\r', flush=True)
-    forest_seed = seed+i
+    print(
+        "  Generating forest environment with density %.2f [%d of %d]" % (density, i + 1, n_environments),
+        end="\r",
+        flush=True,
+    )
+    forest_seed = seed + i
     bounds = [x_min, x_max, y_min, y_max]
     if use_clusters:
-        cluster_density = density*4
-        cov = np.diag([1, 1.5])**2
+        cluster_density = density * 4
+        cov = np.diag([1, 1.5]) ** 2
 
-        cluster_means = [np.array([10, 5]),
-                         np.array([20, 5]),
-                         np.array([30, 5])]
+        cluster_means = [np.array([10, 5]), np.array([20, 5]), np.array([30, 5])]
 
-        clusters = [PoissonTreeCluster(cluster_density, mean, cov, seed=forest_seed+j)
-                    for (j,mean) in enumerate(cluster_means)]
+        clusters = [
+            PoissonTreeCluster(cluster_density, mean, cov, seed=forest_seed + j)
+            for (j, mean) in enumerate(cluster_means)
+        ]
     else:
         clusters = None
-    forest = PoissonForestUniformRadius(bounds=bounds,
-                                              density=density,
-                                              radius_min=min_tree_radius,
-                                              radius_max=max_tree_radius,
-                                              seed=forest_seed,
-                                              invalid_spaces=invalid_spaces,
-                                        clusters=clusters)
+    forest = PoissonForestUniformRadius(
+        bounds=bounds,
+        density=density,
+        radius_min=min_tree_radius,
+        radius_max=max_tree_radius,
+        seed=forest_seed,
+        invalid_spaces=invalid_spaces,
+        clusters=clusters,
+    )
     forests.append(forest)
 print("")
+
 
 class PlannerSettings(object):
 
@@ -173,7 +203,15 @@ for method in methods:
     experiment_dir = output_dir
     if not experiment_dir.exists():
         experiment_dir.mkdir(parents=True)
-    results_filename = experiment_dir / ("%s_%s.txt" % (experiment_name, str(method)))
+
+    method_str = str(method)
+    if method.n_hypotheses == 0 and baseline_n_std is not None:
+        # If running baseline with specified number of std devs bloat, add this to the file name
+        method_str += f"_%.2fstd" % baseline_n_std
+    elif p_target is not None:
+        method_str += f"_%.3fptarget" % p_target
+
+    results_filename = experiment_dir / ("%s_%s.txt" % (experiment_name, method_str))
     if Path(results_filename).is_file():
         print("File %s already exists, skipping" % str(results_filename))
         continue
@@ -188,17 +226,24 @@ for method in methods:
 
             # Using multiple hypothesis planner
             if method.n_hypotheses > 0:
-                sim = MultipleHypothesisPlannerSimulation(start_pose=start_pose,
-                                                          goal_position=goal_position,
-                                                          params=params, world=forest_world,
-                                                          range_bearing_sensor=rb_sensor,
-                                                          size_sensor=size_sensor)
+                sim = MultipleHypothesisPlannerSimulation(
+                    start_pose=start_pose,
+                    goal_position=goal_position,
+                    params=params,
+                    world=forest_world,
+                    range_bearing_sensor=rb_sensor,
+                    size_sensor=size_sensor,
+                )
             # Using baseline
             else:
-                sim = BaselineSimulation(start_pose=start_pose, goal_position=goal_position,
-                                         params=params, world=forest_world,
-                                         range_bearing_sensor=rb_sensor,
-                                         size_sensor=size_sensor)
+                sim = BaselineSimulation(
+                    start_pose=start_pose,
+                    goal_position=goal_position,
+                    params=params,
+                    world=forest_world,
+                    range_bearing_sensor=rb_sensor,
+                    size_sensor=size_sensor,
+                )
             sim_start_time = time.time()
             while sim.is_running():
                 sim.update()
@@ -207,23 +252,24 @@ for method in methods:
                     method_str = "Baseline"
                 else:
                     method_str = "%d hyp" % (params.n_hypotheses)
-                print("%s | Simulation time: %.3f  |   Distance from goal: %.3f" % (method_str, sim.t, dist),
-                      end='\r', flush=True)
+                print(
+                    "%s | Simulation time: %.3f  |   Distance from goal: %.3f" % (method_str, sim.t, dist),
+                    end="\r",
+                    flush=True,
+                )
             time_traveled = sim.t
-            results_lines.append("%d, %d, %s, %f\n" %
-                                 (forest_idx,
-                                  params.n_hypotheses,
-                                  sim.status, time_traveled))
+            results_lines.append("%d, %d, %s, %f\n" % (forest_idx, params.n_hypotheses, sim.status, time_traveled))
             runtime = time.time() - sim_start_time
-            print("[INFO] World %d: Method '%s' finished with status '%s'."
-                  " t_sim=%.2f, t_real=%.2f" %
-                  (forest_idx, str(method), sim.status, time_traveled, runtime))
+            print(
+                "[INFO] World %d: Method '%s' finished with status '%s'."
+                " t_sim=%.2f, t_real=%.2f" % (forest_idx, str(method), sim.status, time_traveled, runtime)
+            )
 
     finally:
         if len(results_lines) >= 1:
             # Write simulation results to file
             print("Writing results to file: %s" % results_filename)
-            with open(results_filename, 'w') as results_file:
+            with open(results_filename, "w") as results_file:
                 results_file.writelines(results_lines)
             print("")
 print("Total experiment runtime: %.2f seconds" % (time.time() - start_time))
