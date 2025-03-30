@@ -79,8 +79,8 @@ if not output_dir.exists():
 
 
 # Set up environment parameters
-n_environments = 50
-# n_environments = 20
+# n_environments = 50
+n_environments = 20
 x_min, x_max = (-2, 42)
 y_min, y_max = (0, 10)
 start_pose = np.array([0.0, 5.0, 0.0])
