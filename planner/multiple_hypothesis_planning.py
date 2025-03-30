@@ -185,7 +185,7 @@ class MultipleHypothesisPlanner(object):
         """
         with self.time_counter.count("construct_navigation_graph"):
             distance_graph = NavigationGraph(
-                self.cell_decomposition, start_position, goal_position, time_counter=time_counter
+                self.cell_decomposition, start_position, goal_position, time_counter=self.time_counter
             )
 
         with self.time_counter.count("navigation_graph_path_search"):

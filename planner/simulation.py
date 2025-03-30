@@ -741,6 +741,7 @@ class MultipleHypothesisPlannerSimulation(Simulation):
                 range_short=p.range_short,
                 range_medium=p.range_medium,
                 boundary=self.boundary,
+                time_counter=self.time_counter,
             )
 
             # Plan high-level path in the graph
@@ -750,7 +751,6 @@ class MultipleHypothesisPlannerSimulation(Simulation):
                     goal_position=self.goal_position,
                     n_hypotheses=self.params.n_hypotheses,
                     min_safety_prune=self.params.min_safety_prune,
-                    time_counter=self.time_counter,
                 )
             self.cell_decomposition = mhp_result.cell_decomposition
             self.mhp_result = mhp_result

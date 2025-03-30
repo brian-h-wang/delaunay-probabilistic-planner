@@ -281,6 +281,6 @@ for method in methods:
 
         # Add "time_counts_" to the start of the results_filename filename, and change suffix to ".npz"
         time_counts_filename = results_filename.with_name("time_counts_" + results_filename.name).with_suffix(".npz")
-        print("Writing time results to file: " % time_counts_filename)
+        print("Writing time results to file: %s" % time_counts_filename)
         time_counter.write_npz(filename=time_counts_filename)
 print("Total experiment runtime: %.2f seconds" % (time.time() - start_time))
