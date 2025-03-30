@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import math
 import numpy as np
 from numpy.typing import ArrayLike
@@ -9,6 +9,7 @@ import matplotlib.patches as patches
 from planner.slam import ObstacleSLAM
 from planner.probabilistic_obstacles import Obstacle2D, ProjectedObstaclesPair, SafetyProbability
 from planner.utils import check_line_intersect
+from planner.time_counter import TimeCounter, StubTimeCounter
 
 # The int value assigned to longer-range zones must be higher than the int values
 #  for shorter-range zones.
@@ -18,14 +19,23 @@ RANGE_LONG = 2
 
 EXCLUDE_LONG_RANGE_VERTICES = True
 
+
 class SafetyCellDecomposition(object):
     """
     A map storing the uncertain positions and sizes of 2D obstacles.
     Used for creating probabilistic graphs and then planning paths.
     """
 
-    def __init__(self, slam: ObstacleSLAM, robot_width: float, safety_probability: SafetyProbability,
-                 range_short=5, range_medium=15, boundary=None):
+    def __init__(
+        self,
+        slam: ObstacleSLAM,
+        robot_width: float,
+        safety_probability: SafetyProbability,
+        range_short=5,
+        range_medium=15,
+        boundary=None,
+        time_counter: Optional[TimeCounter] = None,
+    ):
         """
 
         Parameters
@@ -42,6 +52,10 @@ class SafetyCellDecomposition(object):
         range_medium: float
             Maximum ranges considered as short and medium-range.
         """
+        if time_counter is None:
+            time_counter = StubTimeCounter()
+        self.time_counter = time_counter
+
         obstacles: List[Obstacle2D] = slam.get_landmarks_estimate()
 
         # Add the boundary obstacles - known with perfect certainty
@@ -49,7 +63,6 @@ class SafetyCellDecomposition(object):
             boundary_obstacles = boundary.get_obstacles()
         else:
             boundary_obstacles = []
-
 
         # Create graph where vertices are Delaunay triangulation vertices (i.e. obstacle centers),
         #   with edges between vertices that are in shared triangulation cells.
@@ -63,7 +76,6 @@ class SafetyCellDecomposition(object):
         vertex_n_measurements = graph.new_vertex_property("int")
         # vertex_converged = graph.new_vertex_property("bool")
         edge_safety = graph.new_edge_property("double", val=0.0)
-
 
         obstacles_to_include = []
 
@@ -104,8 +116,9 @@ class SafetyCellDecomposition(object):
         # Combine obstacles and boundary obstacles
         obstacles += boundary_obstacles
 
-        obstacle_positions = np.row_stack([obs.pos_mean.reshape((1,2)) for obs in obstacles])
-        delaunay = Delaunay(obstacle_positions)
+        obstacle_positions = np.row_stack([obs.pos_mean.reshape((1, 2)) for obs in obstacles])
+        with self.time_counter.count("delaunay"):
+            delaunay = Delaunay(obstacle_positions)
 
         # Get list of (int, int) tuples, indicating connections between the obstacles
         # in the Delaunay triangulation
@@ -123,10 +136,11 @@ class SafetyCellDecomposition(object):
             prob_safe = projected_obstacles.get_prob_safe_navigation(robot_width)
             # Save the safety weight of the Delaunay cell edges
             edge_safety[edge] = prob_safe
-            nav_points = projected_obstacles.get_navigation_points(robot_width=robot_width,
-                                                                   safety_probability=safety_probability)
+            nav_points = projected_obstacles.get_navigation_points(
+                robot_width=robot_width, safety_probability=safety_probability
+            )
             if nav_points.shape[0] == 1 and (vertex_range[v1] == RANGE_SHORT and vertex_range[v2] == RANGE_SHORT):
-                nav_points = np.empty((0,2))
+                nav_points = np.empty((0, 2))
             self.navigation_points_dict[(v1, v2)] = nav_points
             self.navigation_points_dict[(v2, v1)] = nav_points
 
@@ -173,7 +187,6 @@ class SafetyCellDecomposition(object):
 
         """
         return self.obstacle_positions[vertex_idx, :]
-
 
     def get_face_vertex_positions(self, v1: int, v2: int, min_safety=0.0):
         """
@@ -238,7 +251,6 @@ class SafetyCellDecomposition(object):
         vertex_n_measurements = self.graph.vp["n_measurements"]
         return max(vertex_n_measurements[v1], vertex_n_measurements[v2])
 
-
     def find_delaunay_cell(self, points):
         """
         Given an array of 2D (x, y) points, return the Delaunay cell that each point falls within.
@@ -281,7 +293,6 @@ class SafetyCellDecomposition(object):
         obstacle_indices = self.delaunay.simplices[cell_index, :]
         return self.obstacle_positions[obstacle_indices, :]
 
-
     def get_cell_neighbors(self):
         """
         Return a list of tuples, each tuple containing the two indices of a pair of cells that
@@ -303,7 +314,7 @@ class SafetyCellDecomposition(object):
         neighbor_edge_vertices: List[Tuple[int, int]] = []
 
         for c1 in range(self.n_cells):
-            for c2, vertex_indices in zip(self.delaunay.neighbors[c1, :], [(1,2), (0,2), (0,1)]):
+            for c2, vertex_indices in zip(self.delaunay.neighbors[c1, :], [(1, 2), (0, 2), (0, 1)]):
                 # -1 indicates the cell is missing a neighbor (at edge of decomposition); skip these
                 if c2 == -1:
                     continue
@@ -320,7 +331,7 @@ class SafetyCellDecomposition(object):
         return vertex_range[vertex_idx]
 
     def _compute_boundary(self):
-        """ Compute and store the cells and cell edges at the boundary of the decomposition. """
+        """Compute and store the cells and cell edges at the boundary of the decomposition."""
         # Get all edges at the boundary of the cell decomposition,
         # using the cells that have no neighbor at one of their edges
         boundary_cells: List[int] = []
@@ -376,7 +387,7 @@ class SafetyCellDecomposition(object):
                 if i == j:
                     continue
                 edge_points = self.obstacle_positions[boundary_edges[j], :]
-                if check_line_intersect(position, midpoint, edge_points[0,:], edge_points[1,:]):
+                if check_line_intersect(position, midpoint, edge_points[0, :], edge_points[1, :]):
                     visible = False
                     break
             if visible:
@@ -416,9 +427,9 @@ class SafetyCellDecomposition(object):
         for i in range(len(boundary_edges)):
             boundary_edge = boundary_edges[i]
             edge_points = self.obstacle_positions[boundary_edge, :]
-            if check_line_intersect(position1, position2, edge_points[0,:], edge_points[1,:]):
-                    visible = False
-                    break
+            if check_line_intersect(position1, position2, edge_points[0, :], edge_points[1, :]):
+                visible = False
+                break
         return visible
 
 
@@ -440,12 +451,10 @@ def get_delaunay_edges(delaunay: Delaunay):
     """
     indptr, indices = delaunay.vertex_neighbor_vertices
     edges = []
-    for vertex_idx in range(len(indptr)-1):
-        neighbors = indices[indptr[vertex_idx]:indptr[vertex_idx+1]]
+    for vertex_idx in range(len(indptr) - 1):
+        neighbors = indices[indptr[vertex_idx] : indptr[vertex_idx + 1]]
         for neighbor in neighbors:
             next_edge = (vertex_idx, neighbor)
             if next_edge[0] < next_edge[1]:
                 edges.append(next_edge)
     return edges
-
-

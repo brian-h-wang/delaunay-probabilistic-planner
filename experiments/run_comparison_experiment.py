@@ -15,6 +15,7 @@ from pathlib import Path
 import time
 import argparse
 from experiments.simulation_defaults import seed, get_default_params, get_default_sensors
+from planner.time_counter import TimeCounter
 
 
 parser = argparse.ArgumentParser()
@@ -199,6 +200,9 @@ for n_hyp in n_hyp_list:
 start_time = time.time()
 
 for method in methods:
+    # Initialize time counter
+    time_counter = TimeCounter()
+
     results_lines = []
     experiment_dir = output_dir
     if not experiment_dir.exists():
@@ -233,6 +237,7 @@ for method in methods:
                     world=forest_world,
                     range_bearing_sensor=rb_sensor,
                     size_sensor=size_sensor,
+                    time_counter=time_counter,
                 )
             # Using baseline
             else:
@@ -243,6 +248,7 @@ for method in methods:
                     world=forest_world,
                     range_bearing_sensor=rb_sensor,
                     size_sensor=size_sensor,
+                    time_counter=time_counter,
                 )
             sim_start_time = time.time()
             while sim.is_running():
@@ -272,4 +278,9 @@ for method in methods:
             with open(results_filename, "w") as results_file:
                 results_file.writelines(results_lines)
             print("")
+
+        # Add "time_counts_" to the start of the results_filename filename, and change suffix to ".npz"
+        time_counts_filename = results_filename.with_name("time_counts_" + results_filename.name).with_suffix(".npz")
+        print("Writing time results to file: " % time_counts_filename)
+        time_counter.write_npz(filename=time_counts_filename)
 print("Total experiment runtime: %.2f seconds" % (time.time() - start_time))

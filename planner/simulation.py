@@ -9,7 +9,7 @@ Main module for simulating the robot and planner (including the baseline A* plan
 import time
 import math
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Optional
 from enum import Enum
 from planner.motion_planning import feedback_lin
 from planner.slam import ObstacleSLAM
@@ -28,6 +28,7 @@ from planner.utils import check_collision, fix_angle, find_unoccluded_obstacles
 from planner.sensor_model import SizeSensorModel, RangeBearingSensorModel
 from planner.probabilistic_obstacles import SafetyProbability
 from planner.path_smoothing import PathSmoother
+from planner.time_counter import TimeCounter, StubTimeCounter
 
 np.set_printoptions(precision=3, floatmode="fixed", suppress=True)
 
@@ -171,6 +172,7 @@ class Simulation(object):
         range_bearing_sensor: RangeBearingSensorModel,
         size_sensor: SizeSensorModel,
         params=None,
+        time_counter: Optional[TimeCounter] = None,
     ):
         self.world = world
         self.range_bearing_sensor = range_bearing_sensor
@@ -252,6 +254,11 @@ class Simulation(object):
 
         self._update_trajectory_history()
 
+        # Save the time counter
+        if time_counter is None:
+            time_counter = StubTimeCounter()
+        self.time_counter = time_counter
+
     def _update_trajectory_history(self):
         self._robot_t_history.append(self.t)
         self._robot_x_history.append(self.robot_position[0])
@@ -315,28 +322,37 @@ class Simulation(object):
         self._update_trajectory_history()
 
         # Use new measurements to update estimate of robot and landmark states
-        if self.t >= self.next_det_time:
-            start_time = time.time()
-            # Update SLAM with detections and odometry
-            self.update_detections_range_bearing_noise()
-            self.slam.update_odometry(odometry=odom_body_frame)
-            # Pass in ground truth distances to landmarks for debugging/plotting later on
-            self.slam.update_landmarks(
-                landmark_measurements=self.measurements_rb,
-                gt_distances_to_measured_landmarks=self.gt_distances_to_measured_landmarks,
-            )
-            # Update the boundary, so that boundary obstacles close enough to the robot's current
-            #   location are made visible to the robot
-            self.boundary.update(robot_pose=self.robot_pose)
-            self.next_det_time += 1.0 / self.params.detection_rate
-        else:
-            # No detections; update with odometry only
-            self.slam.update_odometry(odometry=odom_body_frame)
+        with self.time_counter.count("slam_update"):
+            if self.t >= self.next_det_time:
+                with self.time_counter.count("update_detections"):
+                    # Update SLAM with detections and odometry
+                    self.update_detections_range_bearing_noise()
+                with self.time_counter.count("update_odometry"):
+                    self.slam.update_odometry(odometry=odom_body_frame)
+                    # Pass in ground truth distances to landmarks for debugging/plotting later on
+                with self.time_counter.count("update_landmarks"):
+                    self.slam.update_landmarks(
+                        landmark_measurements=self.measurements_rb,
+                        gt_distances_to_measured_landmarks=self.gt_distances_to_measured_landmarks,
+                    )
+                    # Update the boundary, so that boundary obstacles close enough to the robot's current
+                    #   location are made visible to the robot
+                    self.boundary.update(robot_pose=self.robot_pose)
+                self.next_det_time += 1.0 / self.params.detection_rate
+            else:
+                with self.time_counter.count("update_detections"):
+                    pass
+                with self.time_counter.count("update_odometry"):
+                    # No detections; update with odometry only
+                    self.slam.update_odometry(odometry=odom_body_frame)
+                with self.time_counter.count("update_landmarks"):
+                    pass
 
         # Plan a new path, at the specified replanning rate
         if self.t >= self.next_replan_time:
-            waypoints = self.plan_path(self.robot_pose, self.goal_position)
-            self.waypoints = self.smooth_path(waypoints)
+            with self.time_counter.count("plan_path"):
+                waypoints = self.plan_path(self.robot_pose, self.goal_position)
+                self.waypoints = self.smooth_path(waypoints)
             self.next_waypoint_index = 0
             self.next_replan_time += 1.0 / self.params.replan_rate
 
@@ -657,13 +673,15 @@ class BaselineSimulation(Simulation):
             close_enough=self.params.close_enough,
             boundary=self.boundary,
         )
-        start_time = time.time()
-        global_path = global_planner.find_path(start_position=self.robot_position, goal_position=self.goal_position)
+
+        with self.time_counter.count("baseline_global_planner"):
+            global_path = global_planner.find_path(start_position=self.robot_position, goal_position=self.goal_position)
 
         if global_path is None:
             self.baseline_global_planner_points = None
             print("2D A* could not find a path.")
             return np.empty((0, 2))
+
         plan_ahead_distance = self.get_plan_ahead_distance()
         local_goal, is_global_goal, goal_point_index = global_path.get_local_goal(
             distance=plan_ahead_distance, return_index=True
@@ -690,7 +708,8 @@ class BaselineSimulation(Simulation):
             timeout_n_vertices=p.local_astar_timeout_n_vertices,
             close_enough=close_enough,
         )
-        path = planner.find_path(start_pose, local_goal)
+        with self.time_counter.count("baseline_local_planner"):
+            path = planner.find_path(start_pose, local_goal)
         self.local_planner_result = path
         if path is None:
             # No Hybrid A* result found
@@ -725,12 +744,14 @@ class MultipleHypothesisPlannerSimulation(Simulation):
             )
 
             # Plan high-level path in the graph
-            mhp_result = mhp_planner.find_paths(
-                start_position=self.robot_position,
-                goal_position=self.goal_position,
-                n_hypotheses=self.params.n_hypotheses,
-                min_safety_prune=self.params.min_safety_prune,
-            )
+            with self.time_counter.count("global_planner"):
+                mhp_result = mhp_planner.find_paths(
+                    start_position=self.robot_position,
+                    goal_position=self.goal_position,
+                    n_hypotheses=self.params.n_hypotheses,
+                    min_safety_prune=self.params.min_safety_prune,
+                    time_counter=self.time_counter,
+                )
             self.cell_decomposition = mhp_result.cell_decomposition
             self.mhp_result = mhp_result
 
@@ -774,7 +795,8 @@ class MultipleHypothesisPlannerSimulation(Simulation):
                 timeout_n_vertices=p.local_astar_timeout_n_vertices,
                 close_enough=close_enough,
             )
-            path = planner.find_path(start_pose, local_goal)
+            with self.time_counter.count("local_planner"):
+                path = planner.find_path(start_pose, local_goal)
             self.local_planner_result = path
             if path is None:
                 # No Hybrid A* result found
