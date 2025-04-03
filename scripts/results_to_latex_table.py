@@ -6,8 +6,9 @@ and print the formatted LaTeX table to the console.
 import os
 from collections import Counter
 from statistics import mean, stdev
+from scipy.stats import chi2_contingency
 
-base_path = "results/3-2025-revision/clusters-lowsafety"
+base_path = "results/3-2025-revision50/clusters-lowsafety"
 densities = ["lowdensity", "defaultdensity", "highdensity"]
 
 method_labels = [
@@ -48,25 +49,18 @@ def compute_stats(results):
     total = len(results)
     counter = Counter([r[0] for r in results])
     success_times = [time for status, time in results if status == "success"]
-    success_rate = counter["success"] / total * 100
-    stop_rate = counter["stopped"] / total * 100
-    crash_rate = counter["crashed"] / total * 100
-    if success_times:
-        avg_time = mean(success_times)
-        std_time = stdev(success_times) if len(success_times) > 1 else 0.0
-    else:
-        avg_time = None
-        std_time = None
     return {
-        "success_rate": success_rate,
-        "stop_rate": stop_rate,
-        "crash_rate": crash_rate,
-        "avg_time": avg_time,
-        "time_std": std_time,
+        "success_rate": counter["success"] / total * 100,
+        "stop_rate": counter["stopped"] / total * 100,
+        "crash_rate": counter["crashed"] / total * 100,
+        "avg_time": mean(success_times) if success_times else None,
+        "time_std": stdev(success_times) if len(success_times) > 1 else 0.0,
+        "raw_counts": counter,
+        "total": total,
     }
 
 
-# Load all data
+# Load results
 table_data = [[] for _ in method_labels]
 for i, label in enumerate(method_labels):
     for density in densities:
@@ -76,50 +70,66 @@ for i, label in enumerate(method_labels):
         table_data[i].append(stats)
 
 
-# Compute column-wide extrema
-def get_column_extrema(data, key, func):
-    return [func([row[i][key] for row in data]) for i in range(3)]
+# Compute p-values
+p_values_full = {}  # for 3-category outcome
+p_values_binary = {}  # for binary outcome
+for i in [1, 3, 5]:  # Baseline rows paired with the planner below
+    base_total = Counter()
+    plan_total = Counter()
+    for d in range(3):
+        base_total.update(table_data[i][d]["raw_counts"])
+        plan_total.update(table_data[i + 1][d]["raw_counts"])
 
+    # Full 3-category test
+    contingency_full = [
+        [base_total["success"], base_total["stopped"], base_total["crashed"]],
+        [plan_total["success"], plan_total["stopped"], plan_total["crashed"]],
+    ]
+    _, p_full, _, _ = chi2_contingency(contingency_full)
+    p_values_full[i] = p_full
 
-max_success = get_column_extrema(table_data, "success_rate", max)
-min_crash = get_column_extrema(table_data, "crash_rate", min)
-min_avg_times = []
-for i in range(3):
-    times = [row[i]["avg_time"] for row in table_data if row[i]["avg_time"] is not None]
-    min_avg_times.append(min(times) if times else None)
+    # Binary test: success vs. not success
+    base_success = base_total["success"]
+    base_not = base_total["stopped"] + base_total["crashed"]
+    plan_success = plan_total["success"]
+    plan_not = plan_total["stopped"] + plan_total["crashed"]
+    contingency_bin = [
+        [base_success, base_not],
+        [plan_success, plan_not],
+    ]
+    _, p_bin, _, _ = chi2_contingency(contingency_bin)
+    p_values_binary[i] = p_bin
 
-# Print LaTeX table rows
+# Print LaTeX table
 print(r"\midrule")
-
 for i, (label, row) in enumerate(zip(method_labels, table_data)):
     if i == 1:
         print(r"\midrule")
     latex_row = [label]
     for col, stats in enumerate(row):
-        # Success/stop/crash
         sr = f"{stats['success_rate']:.0f}\\%"
         stop = f"{stats['stop_rate']:.0f}\\%"
         crash = f"{stats['crash_rate']:.0f}\\%"
-
-        if stats["success_rate"] == max_success[col]:
-            sr = r"\textbf{" + sr + "}"
-        if stats["crash_rate"] == min_crash[col]:
-            crash = r"\textbf{" + crash + "}"
-
-        # Time with std
         if stats["avg_time"] is None:
             time_str = r"\textit{N/A}"
         else:
-            avg = stats["avg_time"]
-            std = stats["time_std"]
-            time_str = f"{avg:.2f} ± {std:.2f}"
-            if avg == min_avg_times[col]:
-                time_str = r"\textbf{" + time_str + "}"
-
+            time_str = f"{stats['avg_time']:.2f} ± {stats['time_std']:.2f}"
         latex_row.extend([sr, stop, crash, time_str])
+
+    # P-value columns
+    if i == 0:
+        latex_row.extend(["-", "-"])
+    elif i in p_values_full:
+        latex_row.extend(
+            [
+                rf"\multirow{{2}}{{*}}{{${p_values_full[i]:.2g}$}}",
+                rf"\multirow{{2}}{{*}}{{${p_values_binary[i]:.2g}$}}",
+            ]
+        )
+    else:
+        latex_row.extend(["", ""])
 
     print(" & ".join(latex_row) + r" \\")
     if "Planner" in label:
         print(r"\midrule")
-
 print(r"\bottomrule")
