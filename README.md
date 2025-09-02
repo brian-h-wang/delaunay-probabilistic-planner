@@ -1,6 +1,4 @@
-# multiple-hypothesis-planner
-
-Code for the paper [Multiple-Hypothesis Path Planning with Uncertain Obstacle Detections](https://arxiv.org/abs/2308.07420), by Brian H. Wang, Beatriz Asfora, Rachel Zheng, Aaron Peng, Jacopo Banfi, and Mark Campbell. Paper available as arxiv preprint.
+# A Delaunay Triangulation Probabilistic Navigation Graph for Planning Safe Paths between Uncertain Obstacles
 
 # Installation
 
@@ -46,27 +44,27 @@ In order to regenerate all results from the paper, run the following commands. *
 cd experiments
 
 # Experiments in forests with uniformly distributed obstacles:
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -ld  # low obstacle density
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -hd  # high obstacle density
+python run_comparison_experiment.py -o results/results_from_paper
+python run_comparison_experiment.py -o results/results_from_paper -ld  # low obstacle density
+python run_comparison_experiment.py -o results/results_from_paper -hd  # high obstacle density
 
 # Experiments in nonuniform forests with Gaussian distributed clusters of obstacles
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -c
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -c -ld
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -c -hd
+python run_comparison_experiment.py -o results/results_from_paper -c
+python run_comparison_experiment.py -o results/results_from_paper -ld
+python run_comparison_experiment.py -o results/results_from_paper -hd
 
 # Experiments with multiple-hypothesis planner using higher desired safety threshold
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -hs
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -hs -ld
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -hs -hd
+python run_comparison_experiment.py -o results/results_from_paper -hs
+python run_comparison_experiment.py -o results/results_from_paper -hs -ld
+python run_comparison_experiment.py -o results/results_from_paper -hs -hd
 
 # Experiments in nonuniform forests with Gaussian distributed clusters of obstacles
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -c -hs 
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -c -hs -ld
-python run_comparison_experiment.py -o results/results_from_paper -hyp 0 1 2 3 5 -c -hs -hd
+python run_comparison_experiment.py -o results/results_from_paper -hs 
+python run_comparison_experiment.py -o results/results_from_paper -hs -ld
+python run_comparison_experiment.py -o results/results_from_paper -hs -hd
 ```
 
-The experiments will be written to multiple .txt files separated by number of planner hypotheses/baseline planner, forest layout (clusters or uniform), and high or low safety threshold setting. Each row in the output files is formatted as
+The experiments will be written to multiple .txt files separated by planner vs. baseline, and high or low safety threshold setting. Each row in the output files is formatted as
 
 ```
 forest_number n_hypotheses simulation_status elapsed_time
